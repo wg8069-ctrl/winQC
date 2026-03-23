@@ -71,8 +71,8 @@ const BASE_STEPS = [
     validate: (v) => isNaN(v) ? '請輸入純數字！' : null },
   { key: 'solution',   required: true,  ask: '🔧 請輸入處理方式' },
   { key: 'vendor',     required: true,  ask: '🏭 請輸入異常廠商名稱' },
-  { key: 'customer',   required: false, ask: '👥 請輸入客戶名稱\n（可輸入「略過」跳過）' },
-  { key: 'caseNumber', required: false, ask: '📝 已開立異常單號？\n（有請輸入單號數字）\n（沒有請輸入「略過」，之後需填免開原因）\n⚠️ 有填單號→狀態自動設為「處理中」' },
+  { key: 'customer',   required: false, ask: '👥 請輸入客戶名稱\n（可輸入「略過」或「無」跳過）' },
+  { key: 'caseNumber', required: false, ask: '📝 已開立異常單號？\n（有請輸入單號數字）\n（沒有請輸入「無」，之後需填免開原因）\n⚠️ 有填單號→狀態自動設為「處理中」' },
   // skipReason 是動態步驟，只在 caseNumber = 略過 時才問
 ];
 
@@ -133,7 +133,7 @@ async function handleMessage(event) {
       const err = cur.validate(text);
       if (err) { await replyText(replyToken, err + '\n\n' + cur.ask); return; }
     }
-    session.data[cur.key] = (!cur.required && text === '略過') ? '' : text;
+    session.data[cur.key] = (!cur.required && (text === '略過' || text === '無')) ? '' : text;
     const next = session.step + 1;
 
     if (next >= BASE_STEPS.length) {
