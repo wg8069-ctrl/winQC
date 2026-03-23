@@ -143,6 +143,37 @@ async function handleMessage(event) {
 
   let session = sessions[userId] || { step: 'idle', data: {} };
 
+  // 查詢功能（任何步驟都可觸發）
+  if (text && text.startsWith('查詢')) {
+    const keyword = text.replace(/^查詢\s*/, '').trim();
+    if (!keyword) {
+      await replyText(replyToken, '請輸入查詢關鍵字\n例如：查詢 WCB4-215B-CR');
+      return;
+    }
+    try {
+      const results = await searchNotion(keyword);
+      if (results.length === 0) {
+        await replyText(replyToken, `🔍 查無「${keyword}」相關紀錄`);
+      } else {
+        const lines = [`🔍 找到 ${results.length} 筆「${keyword}」相關紀錄：\n`];
+        results.slice(0, 5).forEach((r, i) => {
+          lines.push(
+            `${i + 1}. ${r.date} ${r.productId}\n` +
+            `   📋 ${r.issue}\n` +
+            `   🔢 ${r.quantity} pcs｜🔘 ${r.status}` +
+            (r.caseNumber ? `\n   📝 單號：${r.caseNumber}` : '')
+          );
+        });
+        if (results.length > 5) lines.push(`\n...共 ${results.length} 筆，僅顯示前 5 筆`);
+        await replyText(replyToken, lines.join('\n'));
+      }
+    } catch (err) {
+      console.error(err.response?.data || err.message);
+      await replyText(replyToken, '❌ 查詢失敗，請通知管理員');
+    }
+    return;
+  }
+
   // 重置
   if (text === '重填' || text === '取消') {
     delete sessions[userId];
@@ -223,37 +254,6 @@ async function handleMessage(event) {
     } catch (err) {
       console.error(err.response?.data || err.message);
       await replyText(replyToken, '❌ 寫入失敗，請通知管理員\n' + (err.response?.data?.message || err.message));
-    }
-    return;
-  }
-
-  // 查詢功能
-  if (text && text.startsWith('查詢')) {
-    const keyword = text.replace(/^查詢\s*/, '').trim();
-    if (!keyword) {
-      await replyText(replyToken, '請輸入查詢關鍵字\n例如：查詢 WCB4-215B-CR');
-      return;
-    }
-    try {
-      const results = await searchNotion(keyword);
-      if (results.length === 0) {
-        await replyText(replyToken, `🔍 查無「${keyword}」相關紀錄`);
-      } else {
-        const lines = [`🔍 找到 ${results.length} 筆「${keyword}」相關紀錄：\n`];
-        results.slice(0, 5).forEach((r, i) => {
-          lines.push(
-            `${i + 1}. ${r.date} ${r.productId}\n` +
-            `   📋 ${r.issue}\n` +
-            `   🔢 ${r.quantity} pcs｜🔘 ${r.status}` +
-            (r.caseNumber ? `\n   📝 單號：${r.caseNumber}` : '')
-          );
-        });
-        if (results.length > 5) lines.push(`\n...共 ${results.length} 筆，僅顯示前 5 筆`);
-        await replyText(replyToken, lines.join('\n'));
-      }
-    } catch (err) {
-      console.error(err.response?.data || err.message);
-      await replyText(replyToken, '❌ 查詢失敗，請通知管理員');
     }
     return;
   }
