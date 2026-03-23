@@ -37,8 +37,11 @@ async function replyText(replyToken, text) {
 async function createNotionPage(data, senderName) {
   const toText = (v) => [{ text: { content: v ? String(v) : '' } }];
 
-  // 處理狀態邏輯：有填異常單號 → 處理中，否則 → 未開始
-  const status = data.caseNumber ? '處理中' : '未開始';
+  // 處理狀態：有填異常單號 → 處理中，否則 → 未開始
+  const statusName = data.caseNumber ? '處理中' : '未開始';
+
+  // 異常單號轉數字（只取數字部分）
+  const caseNum = data.caseNumber ? parseInt(data.caseNumber.replace(/[^0-9]/g, '')) || null : null;
 
   const properties = {
     '發生地':                    { title: [{ text: { content: data.location || '(未填)' } }] },
@@ -50,9 +53,9 @@ async function createNotionPage(data, senderName) {
     '處理方式':                  { rich_text: toText(data.solution) },
     '數量':                      data.quantity ? { number: parseInt(data.quantity) } : { number: null },
     '發生日期':                  { date: { start: new Date().toISOString().split('T')[0] } },
-    '已開立異常單(請輸入單號)':   { rich_text: toText(data.caseNumber) },
+    '已開立異常單(請輸入單號)':   caseNum ? { number: caseNum } : { number: null },
     '免開異常(請輸入原因)':       { rich_text: toText(data.skipReason) },
-    '處理狀態':                  { select: { name: status } },
+    '處理狀態':                  { status: { name: statusName } },
   };
 
   await axios.post('https://api.notion.com/v1/pages',
@@ -61,7 +64,6 @@ async function createNotionPage(data, senderName) {
   );
 }
 
-// 對話步驟
 const STEPS = [
   { key: 'location',   required: true,  ask: '📍 請輸入發生地點\n（例如：組裝線A）' },
   { key: 'productId',  required: true,  ask: '📦 請輸入產品編號\n（例如：WCB4-215B-CR）' },
@@ -72,7 +74,7 @@ const STEPS = [
   { key: 'solution',   required: true,  ask: '🔧 請輸入處理方式' },
   { key: 'vendor',     required: true,  ask: '🏭 請輸入廠商名稱' },
   { key: 'customer',   required: false, ask: '👥 請輸入客戶名稱\n（可輸入「略過」跳過）' },
-  { key: 'caseNumber', required: false, ask: '📝 已開立異常單號？\n（有請輸入單號，沒有請輸入「略過」）\n⚠️ 有填單號→狀態自動設為「處理中」' },
+  { key: 'caseNumber', required: false, ask: '📝 已開立異常單號？\n（有請輸入單號數字，沒有請輸入「略過」）\n⚠️ 有填單號→狀態自動設為「處理中」' },
   { key: 'skipReason', required: false, ask: '🚫 免開異常原因？\n（有請輸入原因，沒有請輸入「略過」）' },
 ];
 
@@ -84,14 +86,12 @@ async function handleMessage(event) {
 
   let session = sessions[userId] || { step: 'idle', data: {} };
 
-  // 重置
   if (text === '重填' || text === '取消') {
     delete sessions[userId];
     await replyText(replyToken, '已取消。\n\n輸入「回報異常」重新開始。');
     return;
   }
 
-  // 開始
   if (session.step === 'idle' || text === '回報異常') {
     sessions[userId] = { step: 0, data: {} };
     await replyText(replyToken,
@@ -100,20 +100,13 @@ async function handleMessage(event) {
     return;
   }
 
-  // 填寫中
   if (typeof session.step === 'number') {
     const cur = STEPS[session.step];
-
-    if (!text) {
-      await replyText(replyToken, '請輸入文字\n\n' + cur.ask);
-      return;
-    }
-
+    if (!text) { await replyText(replyToken, '請輸入文字\n\n' + cur.ask); return; }
     if (cur.validate) {
       const err = cur.validate(text);
       if (err) { await replyText(replyToken, err + '\n\n' + cur.ask); return; }
     }
-
     session.data[cur.key] = (!cur.required && text === '略過') ? '' : text;
     const next = session.step + 1;
 
@@ -145,7 +138,6 @@ async function handleMessage(event) {
     return;
   }
 
-  // 確認送出
   if (session.step === 'confirm') {
     if (text !== '確認') {
       await replyText(replyToken, '請輸入「確認」送出\n或輸入「重填」重新開始');
@@ -166,7 +158,8 @@ async function handleMessage(event) {
       );
     } catch (err) {
       console.error(err.response?.data || err.message);
-      await replyText(replyToken, '❌ 寫入失敗，請通知管理員\n' + (err.response?.data?.message || err.message));
+      const errMsg = err.response?.data?.message || err.message;
+      await replyText(replyToken, '❌ 寫入失敗，請通知管理員\n' + errMsg);
     }
     return;
   }
