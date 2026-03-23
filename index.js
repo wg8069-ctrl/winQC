@@ -36,11 +36,7 @@ async function replyText(replyToken, text) {
 
 async function createNotionPage(data, senderName) {
   const toText = (v) => [{ text: { content: v ? String(v) : '' } }];
-
-  // 處理狀態：有填異常單號 → 處理中，否則 → 未開始
   const statusName = data.caseNumber ? '處理中' : '未開始';
-
-  // 異常單號轉數字（只取數字部分）
   const caseNum = data.caseNumber ? parseInt(data.caseNumber.replace(/[^0-9]/g, '')) || null : null;
 
   const properties = {
@@ -48,14 +44,14 @@ async function createNotionPage(data, senderName) {
     '產品編號':                  { rich_text: toText(data.productId) },
     '品名':                      { rich_text: toText(data.itemName) },
     '異常狀況':                  { rich_text: toText(data.issue) },
-    '廠商':                      { rich_text: toText(data.vendor) },
+    '異常廠商':                  { rich_text: toText(data.vendor) },
     '客戶':                      { rich_text: toText(data.customer) },
     '處理方式':                  { rich_text: toText(data.solution) },
     '數量':                      data.quantity ? { number: parseInt(data.quantity) } : { number: null },
     '發生日期':                  { date: { start: new Date().toISOString().split('T')[0] } },
     '已開立異常單(請輸入單號)':   caseNum ? { number: caseNum } : { number: null },
     '免開異常(請輸入原因)':       { rich_text: toText(data.skipReason) },
-    '處理狀態':                  { status: { name: statusName } },
+    '目前處理狀態':              { status: { name: statusName } },
   };
 
   await axios.post('https://api.notion.com/v1/pages',
@@ -64,7 +60,8 @@ async function createNotionPage(data, senderName) {
   );
 }
 
-const STEPS = [
+// 基本步驟（不含動態步驟）
+const BASE_STEPS = [
   { key: 'location',   required: true,  ask: '📍 請輸入發生地點\n（例如：組裝線A）' },
   { key: 'productId',  required: true,  ask: '📦 請輸入產品編號\n（例如：WCB4-215B-CR）' },
   { key: 'itemName',   required: true,  ask: '🏷️ 請輸入品名' },
@@ -72,11 +69,36 @@ const STEPS = [
   { key: 'quantity',   required: true,  ask: '🔢 請輸入異常數量\n（純數字，例如：150）',
     validate: (v) => isNaN(v) ? '請輸入純數字！' : null },
   { key: 'solution',   required: true,  ask: '🔧 請輸入處理方式' },
-  { key: 'vendor',     required: true,  ask: '🏭 請輸入廠商名稱' },
+  { key: 'vendor',     required: true,  ask: '🏭 請輸入異常廠商名稱' },
   { key: 'customer',   required: false, ask: '👥 請輸入客戶名稱\n（可輸入「略過」跳過）' },
-  { key: 'caseNumber', required: false, ask: '📝 已開立異常單號？\n（有請輸入單號數字，沒有請輸入「略過」）\n⚠️ 有填單號→狀態自動設為「處理中」' },
-  { key: 'skipReason', required: false, ask: '🚫 免開異常原因？\n（有請輸入原因，沒有請輸入「略過」）' },
+  { key: 'caseNumber', required: false, ask: '📝 已開立異常單號？\n（有請輸入單號數字）\n（沒有請輸入「略過」，之後需填免開原因）\n⚠️ 有填單號→狀態自動設為「處理中」' },
+  // skipReason 是動態步驟，只在 caseNumber = 略過 時才問
 ];
+
+const SKIP_REASON_STEP = {
+  key: 'skipReason',
+  required: true,
+  ask: '🚫 請輸入免開異常原因'
+};
+
+function buildSummary(d) {
+  const status = d.caseNumber ? '處理中' : '未開始';
+  return (
+    `📋 請確認以下資料：\n\n` +
+    `📍 發生地：${d.location}\n` +
+    `📦 產品編號：${d.productId}\n` +
+    `🏷️ 品名：${d.itemName}\n` +
+    `⚠️ 異常狀況：${d.issue}\n` +
+    `🔢 數量：${d.quantity}\n` +
+    `🔧 處理方式：${d.solution}\n` +
+    `🏭 異常廠商：${d.vendor}\n` +
+    (d.customer   ? `👥 客戶：${d.customer}\n`        : '') +
+    (d.caseNumber ? `📝 異常單號：${d.caseNumber}\n`  : '') +
+    (d.skipReason ? `🚫 免開原因：${d.skipReason}\n`  : '') +
+    `\n🔘 處理狀態：${status}\n` +
+    `\n輸入「確認」送出\n輸入「重填」重新開始`
+  );
+}
 
 async function handleMessage(event) {
   const userId = event.source?.userId;
@@ -86,22 +108,25 @@ async function handleMessage(event) {
 
   let session = sessions[userId] || { step: 'idle', data: {} };
 
+  // 重置
   if (text === '重填' || text === '取消') {
     delete sessions[userId];
     await replyText(replyToken, '已取消。\n\n輸入「回報異常」重新開始。');
     return;
   }
 
+  // 開始
   if (session.step === 'idle' || text === '回報異常') {
     sessions[userId] = { step: 0, data: {} };
     await replyText(replyToken,
-      '📋 開始填寫異常回報！\n必填 7 項＋選填 3 項\n\n隨時輸入「取消」結束\n\n' + STEPS[0].ask
+      '📋 開始填寫異常回報！\n\n隨時輸入「取消」結束\n\n' + BASE_STEPS[0].ask
     );
     return;
   }
 
+  // 填寫基本步驟
   if (typeof session.step === 'number') {
-    const cur = STEPS[session.step];
+    const cur = BASE_STEPS[session.step];
     if (!text) { await replyText(replyToken, '請輸入文字\n\n' + cur.ask); return; }
     if (cur.validate) {
       const err = cur.validate(text);
@@ -110,34 +135,38 @@ async function handleMessage(event) {
     session.data[cur.key] = (!cur.required && text === '略過') ? '' : text;
     const next = session.step + 1;
 
-    if (next >= STEPS.length) {
-      session.step = 'confirm';
-      sessions[userId] = session;
-      const d = session.data;
-      const status = d.caseNumber ? '處理中' : '未開始';
-      const summary =
-        `📋 請確認以下資料：\n\n` +
-        `📍 發生地：${d.location}\n` +
-        `📦 產品編號：${d.productId}\n` +
-        `🏷️ 品名：${d.itemName}\n` +
-        `⚠️ 異常狀況：${d.issue}\n` +
-        `🔢 數量：${d.quantity}\n` +
-        `🔧 處理方式：${d.solution}\n` +
-        `🏭 廠商：${d.vendor}\n` +
-        (d.customer   ? `👥 客戶：${d.customer}\n`        : '') +
-        (d.caseNumber ? `📝 異常單號：${d.caseNumber}\n`  : '') +
-        (d.skipReason ? `🚫 免開原因：${d.skipReason}\n`  : '') +
-        `\n🔘 處理狀態：${status}\n` +
-        `\n輸入「確認」送出\n輸入「重填」重新開始`;
-      await replyText(replyToken, summary);
+    if (next >= BASE_STEPS.length) {
+      // 基本步驟填完，判斷是否需要問免開原因
+      if (!session.data.caseNumber) {
+        // 沒有填異常單號 → 問免開原因
+        session.step = 'ask_skip_reason';
+        sessions[userId] = session;
+        await replyText(replyToken, '✅ 已記錄！\n\n' + SKIP_REASON_STEP.ask);
+      } else {
+        // 有填異常單號 → 直接跳到確認
+        session.step = 'confirm';
+        sessions[userId] = session;
+        await replyText(replyToken, buildSummary(session.data));
+      }
     } else {
       session.step = next;
       sessions[userId] = session;
-      await replyText(replyToken, '✅ 已記錄！\n\n' + STEPS[next].ask);
+      await replyText(replyToken, '✅ 已記錄！\n\n' + BASE_STEPS[next].ask);
     }
     return;
   }
 
+  // 填寫免開原因（動態步驟）
+  if (session.step === 'ask_skip_reason') {
+    if (!text) { await replyText(replyToken, '請輸入免開異常原因\n\n' + SKIP_REASON_STEP.ask); return; }
+    session.data.skipReason = text;
+    session.step = 'confirm';
+    sessions[userId] = session;
+    await replyText(replyToken, buildSummary(session.data));
+    return;
+  }
+
+  // 確認送出
   if (session.step === 'confirm') {
     if (text !== '確認') {
       await replyText(replyToken, '請輸入「確認」送出\n或輸入「重填」重新開始');
@@ -158,8 +187,7 @@ async function handleMessage(event) {
       );
     } catch (err) {
       console.error(err.response?.data || err.message);
-      const errMsg = err.response?.data?.message || err.message;
-      await replyText(replyToken, '❌ 寫入失敗，請通知管理員\n' + errMsg);
+      await replyText(replyToken, '❌ 寫入失敗，請通知管理員\n' + (err.response?.data?.message || err.message));
     }
     return;
   }
