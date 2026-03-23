@@ -52,6 +52,7 @@ async function createNotionPage(data, senderName) {
     '已開立異常單(請輸入單號)':   caseNum ? { number: caseNum } : { number: null },
     '免開異常(請輸入原因)':       { rich_text: toText(data.skipReason) },
     '目前處理狀態':              { rich_text: toText(statusName) },
+    '回報人':                    { rich_text: toText(senderName) },
   };
 
   await axios.post('https://api.notion.com/v1/pages',
@@ -62,7 +63,7 @@ async function createNotionPage(data, senderName) {
 
 // 基本步驟（不含動態步驟）
 const BASE_STEPS = [
-  { key: 'location',   required: true,  ask: '📍  請輸入異常發生地點\n（例如：組裝線A）' },
+  { key: 'location',   required: true,  ask: '📍 請輸入發生地點\n（例如：組裝線A）' },
   { key: 'productId',  required: true,  ask: '📦 請輸入產品編號\n（例如：WCB4-215B-CR）' },
   { key: 'itemName',   required: true,  ask: '🏷️ 請輸入品名' },
   { key: 'issue',      required: true,  ask: '⚠️ 請描述異常狀況' },
@@ -71,7 +72,7 @@ const BASE_STEPS = [
   { key: 'solution',   required: true,  ask: '🔧 請輸入處理方式' },
   { key: 'vendor',     required: true,  ask: '🏭 請輸入異常廠商名稱' },
   { key: 'customer',   required: false, ask: '👥 請輸入客戶名稱\n（可輸入「略過」跳過）' },
-  { key: 'caseNumber', required: false, ask: '📝 已開立異常單號？\n（有請輸入單號數字）\n（沒有請輸入「略過」，之後需填免開原因）\n ' },
+  { key: 'caseNumber', required: false, ask: '📝 已開立異常單號？\n（有請輸入單號數字）\n（沒有請輸入「略過」，之後需填免開原因）\n⚠️ 有填單號→狀態自動設為「處理中」' },
   // skipReason 是動態步驟，只在 caseNumber = 略過 時才問
 ];
 
