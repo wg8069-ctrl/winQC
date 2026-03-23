@@ -51,7 +51,7 @@ async function createNotionPage(data, senderName) {
     '發生日期':                  { date: { start: new Date().toISOString().split('T')[0] } },
     '已開立異常單(請輸入單號)':   caseNum ? { number: caseNum } : { number: null },
     '免開異常(請輸入原因)':       { rich_text: toText(data.skipReason) },
-    '目前處理狀態':              { status: { name: statusName } },
+    '目前處理狀態':              { rich_text: toText(statusName) },
   };
 
   await axios.post('https://api.notion.com/v1/pages',
