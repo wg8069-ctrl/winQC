@@ -93,26 +93,26 @@ async function searchNotion(keyword) {
 const MAIN_MENU =
   '📋 WinGun 異常回報系統\n\n' +
   '請選擇功能：\n\n' +
-  '1  回報異常\n' +
-  '2  查詢紀錄\n' +
-  '0  顯示此選單\n\n' +
+  '1️⃣  回報異常\n' +
+  '2️⃣  查詢紀錄\n' +
+  '0️⃣  顯示此選單\n\n' +
   '（直接輸入數字選擇）';
 
 // 回報步驟
 const BASE_STEPS = [
-  { key: 'location',   required: true,  ask: '📍 請輸入發生地點\n（例如：組裝線A）' },
-  { key: 'productId',  required: true,  ask: '📦 請輸入產品編號\n（例如：WCB4-215B-CR）' },
-  { key: 'itemName',   required: true,  ask: '🏷️ 請輸入品名' },
+  { key: 'location',   required: true,  ask: '📍 請輸入發生地點\n（例如：本廠／二廠／廠商地）' },
+  { key: 'productId',  required: true,  ask: '📦 請輸入產品編號\n（例如：WCB4-215B-CR）\n隨時輸入「0」回主選單' },
+  { key: 'itemName',   required: true,  ask: '🏷️ 請輸入品名（物料名稱）\n（例如：O環／滑套）' },
   { key: 'issue',      required: true,  ask: '⚠️ 請描述異常狀況' },
-  { key: 'quantity',   required: true,  ask: '🔢 請輸入異常數量\n（純數字，例如：150）',
+  { key: 'quantity',   required: true,  ask: '🔢 請輸入異常數量\n（只要輸入數字不用單位，例如：150）',
     validate: (v) => isNaN(v) ? '請輸入純數字！' : null },
-  { key: 'solution',   required: true,  ask: '🔧 請輸入處理方式' },
+  { key: 'solution',   required: true,  ask: '🔧 請輸入目前處理方式' },
   { key: 'vendor',     required: true,  ask: '🏭 請輸入異常廠商名稱' },
-  { key: 'customer',   required: false, ask: '👥 請輸入客戶名稱\n（可輸入「無」跳過）' },
-  { key: 'caseNumber', required: false, ask: '📝 已開立異常單號？\n（有請輸入單號數字）\n（沒有請輸入「無」，之後需填免開原因）\n⚠️ 有填單號→狀態自動設為「處理中」' },
+  { key: 'customer',   required: false, ask: '👥 請輸入客戶名稱\n（不知道可輸入「無」跳過）' },
+  { key: 'caseNumber', required: false, ask: '📝 已開立異常單號？\n（有開立請輸入單號數字）\n（沒有請輸入「無」，之後需填免開原因）\n⚠️ 有填單號→狀態自動設為「處理中」' },
 ];
 
-const SKIP_REASON_STEP = { key: 'skipReason', required: true, ask: '🚫 請輸入免開異常原因' };
+const SKIP_REASON_STEP = { key: 'skipReason', required: true, ask: '🚫 請輸入為何免開異常原因' };
 
 function buildSummary(d) {
   const status = d.caseNumber ? '處理中' : '未開始';
@@ -148,9 +148,9 @@ async function handleMessage(event) {
     return;
   }
 
-  if (text === '重填' || text === '取消') {
+  if (text === '重填' || text === '取消' || text === '2') {
     delete sessions[userId];
-    await replyText(replyToken, '已取消。\n\n' + MAIN_MENU);
+    await replyText(replyToken, '已取消，重新開始。\n\n' + MAIN_MENU);
     return;
   }
 
@@ -238,8 +238,8 @@ async function handleMessage(event) {
 
   // ── 確認送出 ──
   if (session.step === 'confirm') {
-    if (text !== '確認') {
-      await replyText(replyToken, '請輸入「確認」送出\n或輸入「重填」重新開始\n或輸入「0」回主選單');
+    if (text !== '1') {
+      await replyText(replyToken, '請輸入「1」送出\n或輸入「2」重新開始\n或輸入「0」回主選單');
       return;
     }
     try {
