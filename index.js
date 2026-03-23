@@ -101,6 +101,40 @@ function buildSummary(d) {
   );
 }
 
+
+async function searchNotion(keyword) {
+  const filters = ['產品編號','品名','異常狀況','異常廠商','免開異常(請輸入原因)'].map(field => ({
+    property: field,
+    rich_text: { contains: keyword }
+  }));
+
+  // Also search by case number if keyword is numeric
+  if (!isNaN(keyword)) {
+    filters.push({ property: '已開立異常單(請輸入單號)', number: { equals: parseInt(keyword) } });
+  }
+
+  const res = await axios.post(
+    `https://api.notion.com/v1/databases/${NOTION_DATABASE_ID}/query`,
+    { filter: { or: filters }, sorts: [{ property: '發生日期', direction: 'descending' }] },
+    { headers: { Authorization: `Bearer ${NOTION_TOKEN}`, 'Notion-Version': '2022-06-28', 'Content-Type': 'application/json' } }
+  );
+
+  return res.data.results.map(p => {
+    const props = p.properties;
+    const getText = (k) => props[k]?.rich_text?.[0]?.text?.content || '';
+    const getNum  = (k) => props[k]?.number ?? '';
+    const getDate = (k) => props[k]?.date?.start?.slice(0,10) || '';
+    return {
+      date:       getDate('發生日期'),
+      productId:  getText('產品編號'),
+      issue:      getText('異常狀況'),
+      quantity:   getNum('數量'),
+      status:     getText('目前處理狀態'),
+      caseNumber: getNum('已開立異常單(請輸入單號)'),
+    };
+  });
+}
+
 async function handleMessage(event) {
   const userId = event.source?.userId;
   const replyToken = event.replyToken;
@@ -193,7 +227,38 @@ async function handleMessage(event) {
     return;
   }
 
-  await replyText(replyToken, '輸入「回報異常」開始\n輸入「取消」結束目前流程');
+  // 查詢功能
+  if (text && text.startsWith('查詢')) {
+    const keyword = text.replace(/^查詢\s*/, '').trim();
+    if (!keyword) {
+      await replyText(replyToken, '請輸入查詢關鍵字\n例如：查詢 WCB4-215B-CR');
+      return;
+    }
+    try {
+      const results = await searchNotion(keyword);
+      if (results.length === 0) {
+        await replyText(replyToken, `🔍 查無「${keyword}」相關紀錄`);
+      } else {
+        const lines = [`🔍 找到 ${results.length} 筆「${keyword}」相關紀錄：\n`];
+        results.slice(0, 5).forEach((r, i) => {
+          lines.push(
+            `${i + 1}. ${r.date} ${r.productId}\n` +
+            `   📋 ${r.issue}\n` +
+            `   🔢 ${r.quantity} pcs｜🔘 ${r.status}` +
+            (r.caseNumber ? `\n   📝 單號：${r.caseNumber}` : '')
+          );
+        });
+        if (results.length > 5) lines.push(`\n...共 ${results.length} 筆，僅顯示前 5 筆`);
+        await replyText(replyToken, lines.join('\n'));
+      }
+    } catch (err) {
+      console.error(err.response?.data || err.message);
+      await replyText(replyToken, '❌ 查詢失敗，請通知管理員');
+    }
+    return;
+  }
+
+  await replyText(replyToken, '輸入「回報異常」開始回報\n輸入「查詢 關鍵字」查詢紀錄\n輸入「取消」結束目前流程');
 }
 
 app.post('/webhook', async (req, res) => {
