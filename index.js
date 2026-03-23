@@ -27,6 +27,16 @@ async function getDisplayName(userId) {
   } catch { return '用戶'; }
 }
 
+async function getImageUrl(messageId) {
+  try {
+    const r = await axios.get(
+      `https://api-data.line.me/v2/bot/message/${messageId}/content`,
+      { headers: { Authorization: `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}` }, responseType: 'arraybuffer' }
+    );
+    return `data:image/jpeg;base64,${Buffer.from(r.data).toString('base64')}`;
+  } catch { return null; }
+}
+
 async function replyText(replyToken, text) {
   await axios.post('https://api.line.me/v2/bot/message/reply',
     { replyToken, messages: [{ type: 'text', text }] },
@@ -55,8 +65,15 @@ async function createNotionPage(data, senderName) {
     '回報人':                    { rich_text: toText(senderName) },
   };
 
+  const pageBody = { parent: { database_id: NOTION_DATABASE_ID }, properties };
+  if (data.photoUrl) {
+    pageBody.children = [{
+      object: 'block', type: 'image',
+      image: { type: 'external', external: { url: data.photoUrl } }
+    }];
+  }
   await axios.post('https://api.notion.com/v1/pages',
-    { parent: { database_id: NOTION_DATABASE_ID }, properties },
+    pageBody,
     { headers: { Authorization: `Bearer ${NOTION_TOKEN}`, 'Notion-Version': '2022-06-28', 'Content-Type': 'application/json' } }
   );
 }
@@ -104,6 +121,7 @@ const BASE_STEPS = [
   { key: 'productId',  required: true,  ask: '📦 請輸入產品編號\n（例如：WCB4-215B-CR）\n隨時輸入「0」回主選單' },
   { key: 'itemName',   required: true,  ask: '🏷️ 請輸入品名（物料名稱）\n（例如：O環／滑套）' },
   { key: 'issue',      required: true,  ask: '⚠️ 請描述異常狀況' },
+  { key: 'photo',      required: false, ask: '📸 請上傳異常照片\n（可直接拍照傳送，或輸入「無」跳過）', isPhoto: true },
   { key: 'quantity',   required: true,  ask: '🔢 請輸入異常數量\n（只要輸入數字不用單位，例如：150）',
     validate: (v) => isNaN(v) ? '請輸入純數字！' : null },
   { key: 'solution',   required: true,  ask: '🔧 請輸入目前處理方式' },
@@ -137,6 +155,7 @@ async function handleMessage(event) {
   const userId = event.source?.userId;
   const replyToken = event.replyToken;
   const text = event.message?.type === 'text' ? event.message.text.trim() : null;
+  const imageId = event.message?.type === 'image' ? event.message.id : null;
   if (!userId) return;
 
   let session = sessions[userId] || { step: 'idle', data: {} };
@@ -200,6 +219,24 @@ async function handleMessage(event) {
   // ── 填寫回報步驟 ──
   if (typeof session.step === 'number') {
     const cur = BASE_STEPS[session.step];
+    // 處理照片步驟
+    if (cur.isPhoto) {
+      if (imageId) {
+        const url = await getImageUrl(imageId);
+        session.data.photoUrl = url;
+      } else if (text === '無' || text === '略過') {
+        session.data.photoUrl = null;
+      } else {
+        await replyText(replyToken, '請上傳照片，或輸入「無」跳過\n\n' + cur.ask);
+        return;
+      }
+      const next = session.step + 1;
+      session.step = next;
+      sessions[userId] = session;
+      await replyText(replyToken, '✅ 已記錄！\n\n' + BASE_STEPS[next].ask);
+      return;
+    }
+
     if (!text) { await replyText(replyToken, '請輸入文字\n\n' + cur.ask); return; }
     if (cur.validate) {
       const err = cur.validate(text);
