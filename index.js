@@ -93,9 +93,9 @@ async function searchNotion(keyword) {
 const MAIN_MENU =
   '📋 WinGun 異常回報系統\n\n' +
   '請選擇功能：\n\n' +
-  '1️⃣  回報異常\n' +
-  '2️⃣  查詢紀錄\n' +
-  '0️⃣  顯示此選單\n\n' +
+  '1  回報異常\n' +
+  '2  查詢紀錄\n' +
+  '0  顯示此選單\n\n' +
   '（直接輸入數字選擇）';
 
 // 回報步驟
