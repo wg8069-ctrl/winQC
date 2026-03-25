@@ -1,327 +1,513 @@
-const express = require('express');
-const crypto = require('crypto');
-const axios = require('axios');
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<title>偉剛異常通報</title>
+<script src="https://static.line-scdn.net/liff/edge/versions/2.22.3/sdk.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',sans-serif;background:#f2f2f2;max-width:480px;margin:0 auto;min-height:100vh;}
+.header{background:#00b900;padding:12px 16px;position:sticky;top:0;z-index:10;}
+.header-title{color:#fff;font-size:16px;font-weight:600;}
+.header-sub{color:#c8ffc8;font-size:12px;margin-top:2px;}
+.progress{background:#009900;padding:8px 16px 10px;display:flex;}
+.ps{flex:1;text-align:center;font-size:10px;color:#c8ffc8;}
+.ps.active{color:#fff;font-weight:600;}
+.ps.done{color:#90ee90;}
+.pd{width:8px;height:8px;border-radius:50%;background:#006600;margin:0 auto 3px;}
+.ps.active .pd{background:#fff;}
+.ps.done .pd{background:#90ee90;}
+.card{background:#fff;margin:12px;border-radius:14px;padding:16px;border:0.5px solid #e8e8e8;}
+.card+.card{margin-top:0;}
+.card-title{font-size:13px;color:#555;margin-bottom:12px;font-weight:600;}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;}
+.g4{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px;}
+.sb{padding:12px 6px;border:1.5px solid #e0e0e0;border-radius:10px;background:#fff;font-size:13px;color:#333;cursor:pointer;text-align:center;line-height:1.4;-webkit-tap-highlight-color:transparent;transition:all .15s;}
+.sb:active{transform:scale(0.96);}
+.sb.on{border-color:#00b900;background:#e8ffe8;color:#006600;font-weight:600;}
+.sb.on-red{border-color:#e24b4a;background:#ffeaea;color:#a32d2d;font-weight:600;}
+.sb.on-amber{border-color:#ba7517;background:#fff3cd;color:#633806;font-weight:600;}
+.rb{padding:10px 4px;border:1.5px solid #e0e0e0;border-radius:8px;background:#fff;font-size:14px;font-weight:600;color:#333;cursor:pointer;text-align:center;-webkit-tap-highlight-color:transparent;transition:all .15s;}
+.rb:active{transform:scale(0.96);}
+.rb.on{border-color:#00b900;background:#e8ffe8;color:#006600;}
+.ratio-result{background:#e8ffe8;border:1px solid #00b900;border-radius:8px;padding:10px;font-size:15px;color:#006600;font-weight:600;text-align:center;margin-top:10px;display:none;}
+.photo-zone{border:2px dashed #ccc;border-radius:12px;padding:28px 16px;text-align:center;cursor:pointer;-webkit-tap-highlight-color:transparent;}
+.photo-zone.on{border-color:#00b900;background:#f5fff5;}
+.pi{font-size:36px;margin-bottom:8px;}
+.pt{font-size:14px;color:#888;}
+.photo-zone.on .pt{color:#006600;}
+.nav{display:flex;gap:8px;margin:0 12px 16px;}
+.btn-next{flex:1;background:#00b900;color:#fff;border:none;border-radius:12px;padding:16px;font-size:16px;font-weight:600;cursor:pointer;-webkit-tap-highlight-color:transparent;}
+.btn-next:active{opacity:.85;}
+.btn-next:disabled{background:#ccc;cursor:default;}
+.btn-back{background:#fff;color:#555;border:1.5px solid #ddd;border-radius:12px;padding:16px;font-size:15px;cursor:pointer;white-space:nowrap;-webkit-tap-highlight-color:transparent;}
+.skip{text-align:center;font-size:13px;color:#aaa;text-decoration:underline;cursor:pointer;margin:-8px 12px 16px;}
+.step{display:none;}
+.step.active{display:block;}
+.tinput{width:100%;border:1.5px solid #ddd;border-radius:8px;padding:12px;font-size:16px;outline:none;margin-bottom:6px;}
+.tinput:focus{border-color:#00b900;}
+.recent{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;}
+.rbtn{padding:6px 12px;border:1px solid #ddd;border-radius:14px;font-size:12px;color:#555;cursor:pointer;background:#f9f9f9;-webkit-tap-highlight-color:transparent;}
+.rbtn:active{background:#e8ffe8;border-color:#00b900;}
+.hint{font-size:11px;color:#aaa;margin-top:6px;}
+.ratio-wrap{display:flex;gap:10px;align-items:flex-start;}
+.ratio-col{flex:1;}
+.ratio-label{font-size:12px;color:#888;margin-bottom:6px;font-weight:600;}
+.ratio-div{font-size:28px;color:#bbb;padding-top:24px;}
+.stbl{width:100%;font-size:14px;border-collapse:collapse;}
+.stbl td{padding:8px 0;border-bottom:0.5px solid #f0f0f0;vertical-align:top;}
+.stbl .lb{color:#888;width:85px;font-size:13px;}
+.stbl .vl{color:#222;font-weight:600;}
+.tag{display:inline-block;padding:3px 10px;border-radius:10px;font-size:12px;}
+.tg-red{background:#ffeaea;color:#c0392b;}
+.tg-amber{background:#fff3cd;color:#856404;}
+.tg-green{background:#e8ffe8;color:#006600;}
+.done{text-align:center;padding:40px 20px;}
+.done .di{font-size:60px;margin-bottom:16px;}
+.done .dt{font-size:20px;font-weight:600;color:#006600;margin-bottom:6px;}
+.done .dn{font-size:24px;font-weight:600;color:#00b900;margin:12px 0;}
+.done .ds{font-size:14px;color:#888;}
+.nbox{background:#f0fff0;border:1px solid #c8ecc8;border-radius:12px;padding:14px;margin-top:20px;font-size:14px;color:#444;text-align:left;line-height:1.8;}
+.loading{text-align:center;padding:40px;font-size:15px;color:#888;}
+.err{background:#ffeaea;border:1px solid #e24b4a;border-radius:10px;padding:12px;margin:12px;font-size:14px;color:#a32d2d;display:none;}
+</style>
+</head>
+<body>
 
-const app = express();
-app.use(express.json({ verify: (req, res, buf) => { req.rawBody = buf; } }));
+<div class="header">
+  <div class="header-title">偉剛異常通報</div>
+  <div class="header-sub" id="hstep">步驟 1 / 6</div>
+</div>
+<div class="progress">
+  <div class="ps active" id="ps1"><div class="pd"></div>單位</div>
+  <div class="ps" id="ps2"><div class="pd"></div>異常</div>
+  <div class="ps" id="ps3"><div class="pd"></div>比例</div>
+  <div class="ps" id="ps4"><div class="pd"></div>照片</div>
+  <div class="ps" id="ps5"><div class="pd"></div>判定</div>
+  <div class="ps" id="ps6"><div class="pd"></div>確認</div>
+</div>
 
-const LINE_CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET;
-const LINE_CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
-const NOTION_TOKEN = process.env.NOTION_TOKEN;
-const NOTION_DATABASE_ID = process.env.NOTION_DATABASE_ID;
+<div class="err" id="errmsg"></div>
 
-const sessions = {};
+<!-- Step 1 -->
+<div class="step active" id="s1">
+  <div class="card">
+    <div class="card-title">發生單位</div>
+    <div class="g2" id="unit-g">
+      <button class="sb" onclick="pick(this,'unit-g','unit')">🏭 生管一廠</button>
+      <button class="sb" onclick="pick(this,'unit-g','unit')">🏭 生管二廠</button>
+      <button class="sb" onclick="pick(this,'unit-g','unit')">🔍 品保</button>
+      <button class="sb" onclick="pick(this,'unit-g','unit')">📦 倉管收料</button>
+      <button class="sb" onclick="pick(this,'unit-g','unit')">🚚 外包</button>
+      <button class="sb" onclick="pickOther(this,'unit-g','unit','unit-other-in')">✏️ 其他</button>
+    </div>
+    <input class="tinput" id="unit-other-in" placeholder="請輸入單位名稱" style="display:none;margin-top:8px;" oninput="D.unit=this.value.trim();chk1()">
+  </div>
+  <div class="card">
+    <div class="card-title">責任單位</div>
+    <div class="g3" id="resp-g">
+      <button class="sb" onclick="pick(this,'resp-g','resp')">CR<br><small style="color:#888;font-size:11px">成型</small></button>
+      <button class="sb" onclick="pick(this,'resp-g','resp')">AS<br><small style="color:#888;font-size:11px">組裝</small></button>
+      <button class="sb" onclick="pick(this,'resp-g','resp')">QC<br><small style="color:#888;font-size:11px">品保</small></button>
+      <button class="sb" onclick="pick(this,'resp-g','resp')">WH<br><small style="color:#888;font-size:11px">倉庫</small></button>
+      <button class="sb" onclick="pick(this,'resp-g','resp')">供應商</button>
+      <button class="sb" onclick="pickOther(this,'resp-g','resp','resp-other-in')">✏️ 其他</button>
+    </div>
+    <input class="tinput" id="resp-other-in" placeholder="請輸入責任單位" style="display:none;margin-top:8px;" oninput="D.resp=this.value.trim();chk1()">
+  </div>
+  <div class="nav">
+    <button class="btn-next" id="n1" onclick="go(2)" disabled>下一步 →</button>
+  </div>
+</div>
 
-function verifySignature(req) {
-  const sig = req.headers['x-line-signature'];
-  const hash = crypto.createHmac('sha256', LINE_CHANNEL_SECRET).update(req.rawBody).digest('base64');
-  return hash === sig;
-}
+<!-- Step 2 -->
+<div class="step" id="s2">
+  <div class="card">
+    <div class="card-title">異常狀況（可多選）</div>
+    <div class="g2" id="anom-g">
+      <button class="sb" onclick="multi(this)">外觀不良<br><small style="color:#888;font-size:11px">刮傷/髒污</small></button>
+      <button class="sb" onclick="multi(this)">斷差<br><small style="color:#888;font-size:11px">段差/錯位</small></button>
+      <button class="sb" onclick="multi(this)">尺寸異常<br><small style="color:#888;font-size:11px">超出公差</small></button>
+      <button class="sb" onclick="multi(this)">組裝困難<br><small style="color:#888;font-size:11px">鎖不緊/卡住</small></button>
+      <button class="sb" onclick="multi(this)">功能失效<br><small style="color:#888;font-size:11px">測試不通過</small></button>
+      <button class="sb" onclick="multi(this)">來料不良<br><small style="color:#888;font-size:11px">進料異常</small></button>
+      <button class="sb" onclick="multi(this)">標示錯誤</button>
+      <button class="sb" onclick="multiOther(this)">✏️ 其他</button>
+    </div>
+    <input class="tinput" id="anom-other-in" placeholder="請輸入異常狀況說明" style="display:none;margin-top:8px;" oninput="updateAnomOther(this.value)">
+  </div>
+  <div class="card">
+    <div class="card-title">品名</div>
+    <input class="tinput" id="prod-in" placeholder="例：WC4-795B-CR" oninput="D.prod=this.value.trim();chk2()">
+    <div class="recent" id="recent-list"></div>
+    <div class="hint">最近使用品名，點一下帶入</div>
+  </div>
+  <div class="nav">
+    <button class="btn-back" onclick="go(1)">← 返回</button>
+    <button class="btn-next" id="n2" onclick="go(3)" disabled>下一步 →</button>
+  </div>
+</div>
 
-async function getDisplayName(userId) {
-  try {
-    const r = await axios.get(`https://api.line.me/v2/bot/profile/${userId}`, {
-      headers: { Authorization: `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}` }
-    });
-    return r.data.displayName || '用戶';
-  } catch { return '用戶'; }
-}
+<!-- Step 3 -->
+<div class="step" id="s3">
+  <div class="card">
+    <div class="card-title">訂單數量</div>
+    <div class="g4" id="qty-g">
+      <button class="rb" onclick="pickR(this,'qty-g','qty')">200</button>
+      <button class="rb" onclick="pickR(this,'qty-g','qty')">500</button>
+      <button class="rb" onclick="pickR(this,'qty-g','qty')">1000</button>
+      <button class="rb" onclick="pickR(this,'qty-g','qty')">1200</button>
+      <button class="rb" onclick="pickR(this,'qty-g','qty')">2000</button>
+      <button class="rb" onclick="pickR(this,'qty-g','qty')">3000</button>
+      <button class="rb" onclick="pickR(this,'qty-g','qty')">5000</button>
+      <button class="rb" id="qty-other" onclick="showQtyInput()">其他</button>
+    </div>
+    <input class="tinput" id="qty-in" placeholder="輸入數量" style="display:none;margin-top:8px;" type="number" oninput="D.qty=this.value;chk3()">
+  </div>
+  <div class="card">
+    <div class="card-title">不良比例</div>
+    <div class="ratio-wrap">
+      <div class="ratio-col">
+        <div class="ratio-label">抽驗數</div>
+        <div class="g4" id="samp-g">
+          <button class="rb" onclick="pickR(this,'samp-g','samp')">3</button>
+          <button class="rb" onclick="pickR(this,'samp-g','samp')">5</button>
+          <button class="rb" onclick="pickR(this,'samp-g','samp')">10</button>
+          <button class="rb" onclick="pickR(this,'samp-g','samp')">20</button>
+          <button class="rb" onclick="pickR(this,'samp-g','samp')">50</button>
+          <button class="rb" onclick="pickR(this,'samp-g','samp')">100</button>
+          <button class="rb" onclick="pickR(this,'samp-g','samp')">200</button>
+          <button class="rb" onclick="pickR(this,'samp-g','samp')">全</button>
+        </div>
+      </div>
+      <div class="ratio-div">/</div>
+      <div class="ratio-col">
+        <div class="ratio-label">不良數</div>
+        <div class="g4" id="bad-g">
+          <button class="rb" onclick="pickR(this,'bad-g','bad')">1</button>
+          <button class="rb" onclick="pickR(this,'bad-g','bad')">2</button>
+          <button class="rb" onclick="pickR(this,'bad-g','bad')">3</button>
+          <button class="rb" onclick="pickR(this,'bad-g','bad')">5</button>
+          <button class="rb" onclick="pickR(this,'bad-g','bad')">10</button>
+          <button class="rb" onclick="pickR(this,'bad-g','bad')">20</button>
+          <button class="rb" onclick="pickR(this,'bad-g','bad')">50</button>
+          <button class="rb" onclick="pickR(this,'bad-g','bad')">全</button>
+        </div>
+      </div>
+    </div>
+    <div class="ratio-result" id="ratio-res"></div>
+  </div>
+  <div class="nav">
+    <button class="btn-back" onclick="go(2)">← 返回</button>
+    <button class="btn-next" id="n3" onclick="go(4)" disabled>下一步 →</button>
+  </div>
+</div>
 
-async function getImageUrl(messageId) {
-  try {
-    const r = await axios.get(
-      `https://api-data.line.me/v2/bot/message/${messageId}/content`,
-      { headers: { Authorization: `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}` }, responseType: 'arraybuffer' }
-    );
-    return `data:image/jpeg;base64,${Buffer.from(r.data).toString('base64')}`;
-  } catch { return null; }
-}
+<!-- Step 4 -->
+<div class="step" id="s4">
+  <div class="card">
+    <div class="card-title">異常照片</div>
+    <div class="photo-zone" id="pz" onclick="document.getElementById('pf').click()">
+      <div class="pi">📷</div>
+      <div class="pt" id="pt">點這裡拍照或選圖</div>
+    </div>
+    <input type="file" id="pf" accept="image/*" capture="environment" style="display:none" onchange="handlePic(this)">
+    <img id="pp" style="width:100%;border-radius:8px;margin-top:10px;display:none;max-height:300px;object-fit:cover;">
+  </div>
+  <div class="nav">
+    <button class="btn-back" onclick="go(3)">← 返回</button>
+    <button class="btn-next" id="n4" onclick="go(5)" disabled>下一步 →</button>
+  </div>
+  <div class="skip" onclick="D.photo=false;D.photoData=null;document.getElementById('n4').disabled=false;go(5)">沒有照片，先跳過</div>
+</div>
 
-async function replyText(replyToken, text) {
-  await axios.post('https://api.line.me/v2/bot/message/reply',
-    { replyToken, messages: [{ type: 'text', text }] },
-    { headers: { Authorization: `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}`, 'Content-Type': 'application/json' } }
-  );
-}
+<!-- Step 5 -->
+<div class="step" id="s5">
+  <div class="card">
+    <div class="card-title">品質判定</div>
+    <div class="g3" id="judge-g">
+      <button class="sb" style="padding:20px 6px;font-size:15px;" onclick="judgeBtn(this,'驗退','on-red')">❌<br><br>驗退</button>
+      <button class="sb" style="padding:20px 6px;font-size:15px;" onclick="judgeBtn(this,'特採','on-amber')">⚠️<br><br>特採</button>
+      <button class="sb" style="padding:20px 6px;font-size:15px;" onclick="judgeBtn(this,'加工','on')">🔧<br><br>加工</button>
+    </div>
+  </div>
+  <div class="nav">
+    <button class="btn-back" onclick="go(4)">← 返回</button>
+    <button class="btn-next" id="n5" onclick="go(6)" disabled>下一步 →</button>
+  </div>
+</div>
 
-async function createNotionPage(data, senderName) {
-  const toText = (v) => [{ text: { content: v ? String(v) : '' } }];
-  const statusName = data.caseNumber ? '處理中' : '未開始';
-  const caseNum = data.caseNumber ? parseInt(data.caseNumber.replace(/[^0-9]/g, '')) || null : null;
+<!-- Step 6 -->
+<div class="step" id="s6">
+  <div class="card">
+    <div class="card-title">確認後送出</div>
+    <table class="stbl" id="stbl"></table>
+  </div>
+  <div class="nav">
+    <button class="btn-back" onclick="go(5)">← 修改</button>
+    <button class="btn-next" id="n6" onclick="submitForm()">送出異常單 ✓</button>
+  </div>
+</div>
 
-  const properties = {
-    '發生地':                    { title: [{ text: { content: data.location || '(未填)' } }] },
-    '產品編號':                  { rich_text: toText(data.productId) },
-    '品名':                      { rich_text: toText(data.itemName) },
-    '異常狀況':                  { rich_text: toText(data.issue) },
-    '異常廠商':                  { rich_text: toText(data.vendor) },
-    '客戶':                      { rich_text: toText(data.customer) },
-    '處理方式':                  { rich_text: toText(data.solution) },
-    '數量':                      data.quantity ? { number: parseInt(data.quantity) } : { number: null },
-    '發生日期':                  { date: { start: new Date().toISOString().split('T')[0] } },
-    '已開立異常單(請輸入單號)':   caseNum ? { number: caseNum } : { number: null },
-    '免開異常(請輸入原因)':       { rich_text: toText(data.skipReason) },
-    '目前處理狀態':              { rich_text: toText(statusName) },
-    '回報人':                    { rich_text: toText(senderName) },
-  };
+<!-- Done -->
+<div class="step" id="s7">
+  <div class="done">
+    <div class="di">✅</div>
+    <div class="dt">異常單建立完成！</div>
+    <div class="dn" id="dnum"></div>
+    <div class="ds">已自動通知品保與主管</div>
+    <div class="nbox" id="nbox"></div>
+    <button class="btn-next" style="margin-top:24px;max-width:200px;" onclick="closeLiff()">關閉</button>
+  </div>
+</div>
 
-  const pageBody = { parent: { database_id: NOTION_DATABASE_ID }, properties };
-  if (data.photoUrl) {
-    pageBody.children = [{
-      object: 'block', type: 'image',
-      image: { type: 'external', external: { url: data.photoUrl } }
-    }];
+<script>
+// ========== 設定區 ==========
+// 部署後把這個換成你的 Render API 網址
+var API_URL = 'https://YOUR-APP.onrender.com';
+var LIFF_ID = 'YOUR_LIFF_ID';
+// ============================
+
+var D = {unit:'',resp:'',anom:[],prod:'',qty:'',samp:'',bad:'',photo:false,photoData:null,judge:''};
+var cur = 1;
+var userId = '';
+var recentProds = JSON.parse(localStorage.getItem('recentProds')||'["WC4-795B-CR","WC4-800A","CB26-001"]');
+
+liff.init({liffId: LIFF_ID}).then(function(){
+  if(liff.isLoggedIn()){
+    liff.getProfile().then(function(p){ userId = p.userId; });
   }
-  await axios.post('https://api.notion.com/v1/pages',
-    pageBody,
-    { headers: { Authorization: `Bearer ${NOTION_TOKEN}`, 'Notion-Version': '2022-06-28', 'Content-Type': 'application/json' } }
-  );
-}
+}).catch(function(){ console.log('LIFF init failed, running in browser mode'); });
 
-async function searchNotion(keyword) {
-  const filters = ['產品編號','品名','異常狀況','異常廠商','免開異常(請輸入原因)'].map(field => ({
-    property: field, rich_text: { contains: keyword }
-  }));
-  if (!isNaN(keyword)) {
-    filters.push({ property: '已開立異常單(請輸入單號)', number: { equals: parseInt(keyword) } });
-  }
-  const res = await axios.post(
-    `https://api.notion.com/v1/databases/${NOTION_DATABASE_ID}/query`,
-    { filter: { or: filters }, sorts: [{ property: '發生日期', direction: 'descending' }] },
-    { headers: { Authorization: `Bearer ${NOTION_TOKEN}`, 'Notion-Version': '2022-06-28', 'Content-Type': 'application/json' } }
-  );
-  return res.data.results.map(p => {
-    const props = p.properties;
-    const getText = (k) => props[k]?.rich_text?.[0]?.text?.content || '';
-    const getNum  = (k) => props[k]?.number ?? '';
-    const getDate = (k) => props[k]?.date?.start?.slice(0,10) || '';
-    return {
-      date:       getDate('發生日期'),
-      productId:  getText('產品編號'),
-      issue:      getText('異常狀況'),
-      quantity:   getNum('數量'),
-      status:     getText('目前處理狀態'),
-      caseNumber: getNum('已開立異常單(請輸入單號)'),
-    };
+renderRecent();
+
+function renderRecent(){
+  var el = document.getElementById('recent-list');
+  el.innerHTML = '';
+  recentProds.slice(0,5).forEach(function(p){
+    var b = document.createElement('button');
+    b.className = 'rbtn';
+    b.textContent = p;
+    b.onclick = function(){ setProd(p); };
+    el.appendChild(b);
   });
 }
 
-// 主選單文字
-const MAIN_MENU =
-  '📋 WinGun 異常回報系統\n\n' +
-  '請選擇功能：\n\n' +
-  '1️⃣  回報異常\n' +
-  '2️⃣  查詢紀錄\n' +
-  '0️⃣  顯示此選單\n\n' +
-  '（直接輸入數字選擇）';
-
-// 回報步驟
-const BASE_STEPS = [
-  { key: 'location',   required: true,  ask: '📍 請輸入發生地點\n（例如：本廠／二廠／廠商地）' },
-  { key: 'productId',  required: true,  ask: '📦 請輸入產品編號\n（例如：WCB4-215B-CR）\n隨時輸入「0」回主選單' },
-  { key: 'itemName',   required: true,  ask: '🏷️ 請輸入品名（物料名稱）\n（例如：O環／滑套）' },
-  { key: 'issue',      required: true,  ask: '⚠️ 請描述異常狀況' },
-  { key: 'photo',      required: false, ask: '📸 請上傳異常照片\n（可直接拍照傳送，或輸入「無」跳過）', isPhoto: true },
-  { key: 'quantity',   required: true,  ask: '🔢 請輸入異常數量\n（只要輸入數字不用單位，例如：150）',
-    validate: (v) => isNaN(v) ? '請輸入純數字！' : null },
-  { key: 'solution',   required: true,  ask: '🔧 請輸入目前處理方式' },
-  { key: 'vendor',     required: true,  ask: '🏭 請輸入異常廠商名稱' },
-  { key: 'customer',   required: false, ask: '👥 請輸入客戶名稱\n（不知道可輸入「無」跳過）' },
-  { key: 'caseNumber', required: false, ask: '📝 已開立異常單號？\n（有開立請輸入單號數字）\n（沒有請輸入「無」，之後需填免開原因）\n⚠️ 有填單號→狀態自動設為「處理中」' },
-];
-
-const SKIP_REASON_STEP = { key: 'skipReason', required: true, ask: '🚫 請輸入為何免開異常原因' };
-
-function buildSummary(d) {
-  const status = d.caseNumber ? '處理中' : '未開始';
-  return (
-    `📋 請確認以下資料：\n\n` +
-    `📍 發生地：${d.location}\n` +
-    `📦 產品編號：${d.productId}\n` +
-    `🏷️ 品名：${d.itemName}\n` +
-    `⚠️ 異常狀況：${d.issue}\n` +
-    `🔢 數量：${d.quantity}\n` +
-    `🔧 處理方式：${d.solution}\n` +
-    `🏭 異常廠商：${d.vendor}\n` +
-    (d.customer   ? `👥 客戶：${d.customer}\n`       : '') +
-    (d.caseNumber ? `📝 異常單號：${d.caseNumber}\n` : '') +
-    (d.skipReason ? `🚫 免開原因：${d.skipReason}\n` : '') +
-    `\n🔘 處理狀態：${status}\n\n` +
-    `輸入「確認」送出\n輸入「重填」重新開始\n輸入「0」回主選單`
-  );
+function go(n){
+  document.getElementById('s'+cur).classList.remove('active');
+  cur = n;
+  document.getElementById('s'+cur).classList.add('active');
+  document.getElementById('hstep').textContent = n<=6 ? '步驟 '+n+' / 6' : '完成！';
+  for(var i=1;i<=6;i++){
+    var el = document.getElementById('ps'+i);
+    el.className = 'ps'+(i===n?' active':i<n?' done':'');
+  }
+  if(n===6) buildSummary();
+  window.scrollTo(0,0);
 }
 
-async function handleMessage(event) {
-  const userId = event.source?.userId;
-  const replyToken = event.replyToken;
-  const text = event.message?.type === 'text' ? event.message.text.trim() : null;
-  const imageId = event.message?.type === 'image' ? event.message.id : null;
-  if (!userId) return;
-
-  let session = sessions[userId] || { step: 'idle', data: {} };
-
-  // ── 全域指令（任何步驟都有效）──
-  if (text === '0' || text === '選單' || text === 'menu') {
-    delete sessions[userId];
-    await replyText(replyToken, MAIN_MENU);
-    return;
-  }
-
-  if (text === '重填' || text === '取消' || text === '2') {
-    delete sessions[userId];
-    await replyText(replyToken, '已取消，重新開始。\n\n' + MAIN_MENU);
-    return;
-  }
-
-  // ── 主選單 ──
-  if (session.step === 'idle') {
-    if (text === '1' || text === '回報異常') {
-      sessions[userId] = { step: 0, data: {} };
-      await replyText(replyToken, '📋 開始填寫異常回報！\n隨時輸入「0」回主選單\n\n' + BASE_STEPS[0].ask);
-    } else if (text === '2' || text === '查詢紀錄' || text === '查詢') {
-      sessions[userId] = { step: 'searching', data: {} };
-      await replyText(replyToken, '🔍 請輸入查詢關鍵字\n\n可查詢：產品編號、品名、異常狀況、異常廠商、異常單號\n\n輸入「0」回主選單');
-    } else {
-      await replyText(replyToken, MAIN_MENU);
-    }
-    return;
-  }
-
-  // ── 查詢模式 ──
-  if (session.step === 'searching') {
-    if (!text) { await replyText(replyToken, '請輸入查詢關鍵字'); return; }
-    try {
-      const results = await searchNotion(text);
-      if (results.length === 0) {
-        await replyText(replyToken, `🔍 查無「${text}」相關紀錄\n\n輸入「0」回主選單`);
-      } else {
-        const lines = [`🔍 找到 ${results.length} 筆「${text}」相關紀錄：\n`];
-        results.slice(0, 5).forEach((r, i) => {
-          lines.push(
-            `${i + 1}. ${r.date} ${r.productId}\n` +
-            `   📋 ${r.issue}\n` +
-            `   🔢 ${r.quantity} pcs｜🔘 ${r.status}` +
-            (r.caseNumber ? `\n   📝 單號：${r.caseNumber}` : '')
-          );
-        });
-        if (results.length > 5) lines.push(`\n...共 ${results.length} 筆，僅顯示前 5 筆`);
-        lines.push('\n輸入「0」回主選單');
-        await replyText(replyToken, lines.join('\n'));
-      }
-    } catch (err) {
-      console.error(err.response?.data || err.message);
-      await replyText(replyToken, '❌ 查詢失敗，請通知管理員');
-    }
-    delete sessions[userId];
-    return;
-  }
-
-  // ── 填寫回報步驟 ──
-  if (typeof session.step === 'number') {
-    const cur = BASE_STEPS[session.step];
-    // 處理照片步驟
-    if (cur.isPhoto) {
-      if (imageId) {
-        const url = await getImageUrl(imageId);
-        session.data.photoUrl = url;
-      } else if (text === '無' || text === '略過') {
-        session.data.photoUrl = null;
-      } else {
-        await replyText(replyToken, '請上傳照片，或輸入「無」跳過\n\n' + cur.ask);
-        return;
-      }
-      const next = session.step + 1;
-      session.step = next;
-      sessions[userId] = session;
-      await replyText(replyToken, '✅ 已記錄！\n\n' + BASE_STEPS[next].ask);
-      return;
-    }
-
-    if (!text) { await replyText(replyToken, '請輸入文字\n\n' + cur.ask); return; }
-    if (cur.validate) {
-      const err = cur.validate(text);
-      if (err) { await replyText(replyToken, err + '\n\n' + cur.ask); return; }
-    }
-    session.data[cur.key] = (!cur.required && (text === '無' || text === '略過')) ? '' : text;
-    const next = session.step + 1;
-
-    if (next >= BASE_STEPS.length) {
-      if (!session.data.caseNumber) {
-        session.step = 'ask_skip_reason';
-        sessions[userId] = session;
-        await replyText(replyToken, '✅ 已記錄！\n\n' + SKIP_REASON_STEP.ask);
-      } else {
-        session.step = 'confirm';
-        sessions[userId] = session;
-        await replyText(replyToken, buildSummary(session.data));
-      }
-    } else {
-      session.step = next;
-      sessions[userId] = session;
-      await replyText(replyToken, '✅ 已記錄！\n\n' + BASE_STEPS[next].ask);
-    }
-    return;
-  }
-
-  // ── 填免開原因 ──
-  if (session.step === 'ask_skip_reason') {
-    if (!text) { await replyText(replyToken, '請輸入免開異常原因'); return; }
-    session.data.skipReason = text;
-    session.step = 'confirm';
-    sessions[userId] = session;
-    await replyText(replyToken, buildSummary(session.data));
-    return;
-  }
-
-  // ── 確認送出 ──
-  if (session.step === 'confirm') {
-    if (text !== '1') {
-      await replyText(replyToken, '請輸入「1」送出\n或輸入「2」重新開始\n或輸入「0」回主選單');
-      return;
-    }
-    try {
-      const name = await getDisplayName(userId);
-      await createNotionPage(session.data, name);
-      const status = session.data.caseNumber ? '處理中' : '未開始';
-      delete sessions[userId];
-      await replyText(replyToken,
-        `✅ 已成功寫入 Notion！\n\n` +
-        `📦 ${session.data.productId}\n` +
-        `⚠️ ${session.data.issue}\n` +
-        `🔢 ${session.data.quantity} pcs\n` +
-        `🔘 狀態：${status}\n` +
-        `👤 回報人：${name}\n\n感謝回報！\n\n` +
-        `輸入「0」回主選單`
-      );
-    } catch (err) {
-      console.error(err.response?.data || err.message);
-      await replyText(replyToken, '❌ 寫入失敗，請通知管理員\n' + (err.response?.data?.message || err.message));
-    }
-    return;
-  }
-
-  await replyText(replyToken, MAIN_MENU);
+function pick(btn, gridId, key){
+  document.getElementById(gridId).querySelectorAll('.sb').forEach(function(b){ b.className='sb'; });
+  btn.classList.add('on');
+  D[key] = btn.textContent.trim().replace(/\n.*/,'').replace(/[🏭🔍📦🚚⚙️✏️]\s*/,'');
+  // 隱藏對應「其他」輸入框
+  var inId = gridId.replace('-g','-other-in');
+  var inp = document.getElementById(inId);
+  if(inp){ inp.style.display='none'; inp.value=''; }
+  if(key==='unit'||key==='resp') chk1();
 }
 
-app.post('/webhook', async (req, res) => {
-  if (!verifySignature(req)) return res.status(401).send('Unauthorized');
-  res.status(200).send('OK');
-  for (const event of (req.body.events || [])) {
-    if (event.type === 'message') await handleMessage(event).catch(console.error);
-    if (event.type === 'follow') {
-      await replyText(event.replyToken, '👋 歡迎使用 WinGun 異常回報系統！\n\n' + 
-        '📋 WinGun 異常回報系統\n\n' +
-        '請選擇功能：\n\n' +
-        '1️⃣  回報異常\n' +
-        '2️⃣  查詢紀錄\n' +
-        '0️⃣  顯示此選單\n\n' +
-        '（直接輸入數字選擇）'
-      ).catch(console.error);
-    }
+function pickOther(btn, gridId, key, inputId){
+  document.getElementById(gridId).querySelectorAll('.sb').forEach(function(b){ b.className='sb'; });
+  btn.classList.add('on');
+  D[key] = '';
+  var inp = document.getElementById(inputId);
+  inp.style.display = 'block';
+  inp.focus();
+  if(key==='unit'||key==='resp') chk1();
+}
+
+function chk1(){ document.getElementById('n1').disabled = !(D.unit && D.resp); }
+
+function multi(btn){
+  btn.classList.toggle('on');
+  var val = btn.textContent.trim().replace(/\n.*/,'');
+  var idx = D.anom.indexOf(val);
+  if(btn.classList.contains('on')){ if(idx===-1) D.anom.push(val); }
+  else { if(idx>-1) D.anom.splice(idx,1); }
+  chk2();
+}
+
+function multiOther(btn){
+  var isOn = btn.classList.contains('on');
+  btn.classList.toggle('on', !isOn);
+  var inp = document.getElementById('anom-other-in');
+  if(!isOn){
+    inp.style.display = 'block';
+    inp.focus();
+    // 清掉舊值
+    if(D._anomOther){ var i=D.anom.indexOf(D._anomOther); if(i>-1)D.anom.splice(i,1); }
+    D._anomOther = '';
+  } else {
+    inp.style.display = 'none';
+    inp.value = '';
+    if(D._anomOther){ var i=D.anom.indexOf(D._anomOther); if(i>-1)D.anom.splice(i,1); }
+    D._anomOther = '';
+    chk2();
   }
-});
+}
 
-app.get('/', (req, res) => res.json({ status: 'LINE Bot running ✅' }));
+function updateAnomOther(val){
+  // 移除舊的自訂值，換新的
+  if(D._anomOther){ var i=D.anom.indexOf(D._anomOther); if(i>-1)D.anom.splice(i,1); }
+  D._anomOther = val.trim();
+  if(D._anomOther) D.anom.push(D._anomOther);
+  chk2();
+}
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Bot started on port ${PORT}`));
+function setProd(v){
+  document.getElementById('prod-in').value = v;
+  D.prod = v;
+  chk2();
+}
+
+function chk2(){
+  D.prod = document.getElementById('prod-in').value.trim();
+  document.getElementById('n2').disabled = !(D.anom.length>0 && D.prod);
+}
+
+function pickR(btn, gridId, key){
+  document.getElementById(gridId).querySelectorAll('.rb').forEach(function(b){ b.classList.remove('on'); });
+  btn.classList.add('on');
+  D[key] = btn.textContent.trim();
+  updateRatio();
+}
+
+function showQtyInput(){
+  document.getElementById('qty-in').style.display = 'block';
+  document.getElementById('qty-in').focus();
+}
+
+function updateRatio(){
+  var r = document.getElementById('ratio-res');
+  if(D.samp && D.bad){
+    r.style.display = 'block';
+    r.textContent = '不良比例：' + D.samp + ' / ' + D.bad;
+  }
+  chk3();
+}
+
+function chk3(){ document.getElementById('n3').disabled = !(D.qty && D.samp && D.bad); }
+
+function handlePic(inp){
+  if(inp.files && inp.files[0]){
+    var reader = new FileReader();
+    reader.onload = function(e){
+      var pp = document.getElementById('pp');
+      pp.src = e.target.result;
+      pp.style.display = 'block';
+      document.getElementById('pz').classList.add('on');
+      document.getElementById('pt').textContent = '照片已選取 ✓ （點擊可更換）';
+      D.photo = true;
+      D.photoData = e.target.result;
+      document.getElementById('n4').disabled = false;
+    };
+    reader.readAsDataURL(inp.files[0]);
+  }
+}
+
+function judgeBtn(btn, val, cls){
+  document.getElementById('judge-g').querySelectorAll('.sb').forEach(function(b){ b.className='sb'; b.style.padding='20px 6px'; b.style.fontSize='15px'; });
+  btn.classList.add(cls);
+  D.judge = val;
+  document.getElementById('n5').disabled = false;
+}
+
+function genNum(){
+  var t = new Date();
+  return 'CB26-'+(t.getMonth()+1).toString().padStart(2,'0')+t.getDate().toString().padStart(2,'0')+'-'+(Math.floor(Math.random()*900)+100);
+}
+
+function buildSummary(){
+  var t = new Date();
+  var d = t.getFullYear()+'/'+(t.getMonth()+1).toString().padStart(2,'0')+'/'+t.getDate().toString().padStart(2,'0');
+  D._num = genNum(); D._date = d;
+  var jhtml = D.judge==='驗退'?'<span class="tag tg-red">驗退</span>':D.judge==='特採'?'<span class="tag tg-amber">特採</span>':'<span class="tag tg-green">加工</span>';
+  var phtml = D.photo?'<span style="color:#006600">已附照片 ✓</span>':'<span style="color:#aaa">未附照片</span>';
+  document.getElementById('stbl').innerHTML =
+    row('單號',D._num)+row('日期',d)+row('發生單位',D.unit)+row('責任單位',D.resp)+
+    row('品名',D.prod)+row('異常狀況',D.anom.join('、'))+
+    row('訂單數量',D.qty)+row('不良比例',D.samp+' / '+D.bad)+
+    row('品質判定',jhtml)+row('照片',phtml);
+}
+
+function row(l,v){ return '<tr><td class="lb">'+l+'</td><td class="vl">'+v+'</td></tr>'; }
+
+function showErr(msg){
+  var e = document.getElementById('errmsg');
+  e.textContent = msg;
+  e.style.display = 'block';
+  setTimeout(function(){ e.style.display='none'; }, 5000);
+}
+
+function submitForm(){
+  var btn = document.getElementById('n6');
+  btn.disabled = true;
+  btn.textContent = '送出中...';
+
+  // 儲存最近品名
+  var idx = recentProds.indexOf(D.prod);
+  if(idx > -1) recentProds.splice(idx,1);
+  recentProds.unshift(D.prod);
+  recentProds = recentProds.slice(0,8);
+  localStorage.setItem('recentProds', JSON.stringify(recentProds));
+
+  var payload = {
+    number: D._num,
+    date: D._date,
+    unit: D.unit,
+    resp: D.resp,
+    product: D.prod,
+    anomaly: D.anom.join('、'),
+    qty: D.qty,
+    ratio: D.samp + ' / ' + D.bad,
+    judge: D.judge,
+    photoData: D.photoData,
+    userId: userId
+  };
+
+  fetch(API_URL + '/api/anomaly', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(payload)
+  }).then(function(r){ return r.json(); })
+  .then(function(res){
+    if(res.success){
+      go(7);
+      document.getElementById('dnum').textContent = D._num;
+      document.getElementById('nbox').innerHTML =
+        '<b>已通知：</b>品保主管、' + D.unit + ' 主管<br>' +
+        '<b>品名：</b>' + D.prod + '<br>' +
+        '<b>異常：</b>' + D.anom.join('、') + '<br>' +
+        '<b>比例：</b>' + D.samp + ' / ' + D.bad + '<br>' +
+        '<b>判定：</b>' + D.judge;
+    } else {
+      showErr('送出失敗：' + (res.error||'請重試'));
+      btn.disabled = false;
+      btn.textContent = '送出異常單 ✓';
+    }
+  }).catch(function(e){
+    showErr('網路錯誤，請確認網路連線後重試');
+    btn.disabled = false;
+    btn.textContent = '送出異常單 ✓';
+  });
+}
+
+function closeLiff(){
+  try{ liff.closeWindow(); } catch(e){ window.close(); }
+}
+</script>
+</body>
+</html>
