@@ -87,12 +87,6 @@ async function createNotionPage(data, senderName) {
   };
 
   const pageBody = { parent: { database_id: NOTION_DATABASE_ID }, properties };
-  if (data.photoUrl) {
-    pageBody.children = [{
-      object: 'block', type: 'image',
-      image: { type: 'external', external: { url: data.photoUrl } }
-    }];
-  }
   const res = await axios.post('https://api.notion.com/v1/pages',
     pageBody,
     { headers: { Authorization: `Bearer ${NOTION_TOKEN}`, 'Notion-Version': '2022-06-28', 'Content-Type': 'application/json' } }
