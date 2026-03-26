@@ -195,44 +195,7 @@ async function handleMessage(event) {
     await replyText(replyToken, '已取消，重新開始。\n\n' + MAIN_MENU);
     return;
   }
-if (text === '異常通報' || text === '通報' || text === '填單') {
-  await axios.post('https://api.line.me/v2/bot/message/reply',
-    {
-      replyToken,
-      messages: [{
-        type: 'flex',
-        altText: '點此開啟異常通報表單',
-        contents: {
-          type: 'bubble',
-          body: {
-            type: 'box',
-            layout: 'vertical',
-            contents: [
-              { type: 'text', text: '異常通報', weight: 'bold', size: 'xl', color: '#00b900' },
-              { type: 'text', text: '點下方按鈕開啟填單頁面', size: 'sm', color: '#888888', margin: 'md' }
-            ]
-          },
-          footer: {
-            type: 'box',
-            layout: 'vertical',
-            contents: [{
-              type: 'button',
-              style: 'primary',
-              color: '#00b900',
-              action: {
-                type: 'uri',
-                label: '開啟異常通報表單',
-                uri: 'https://liff.line.me/2009600334-UpN6esDu'
-              }
-            }]
-          }
-        }
-      }]
-    },
-    { headers: { Authorization: `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}`, 'Content-Type': 'application/json' } }
-  );
-  return;
-}
+
   if (session.step === 'idle') {
     if (text === '1' || text === '回報異常') {
       sessions[userId] = { step: 0, data: {} };
@@ -373,6 +336,35 @@ function genWGNumber() {
   return `WG${y}${m}${d}${seq}`;
 }
 // ════════════════════════════════════════
+//  Cloudinary 照片上傳
+// ════════════════════════════════════════
+const CLOUDINARY_CLOUD = 'dlpxz4qlh';
+const CLOUDINARY_KEY   = '953226455671951';
+const CLOUDINARY_SECRET = process.env.CLOUDINARY_SECRET || 'Bx_qzmiTmGPtSoEPXYpJwvqLQoA';
+
+async function uploadToCloudinary(base64Data) {
+  try {
+    const timestamp = Math.floor(Date.now() / 1000);
+    const sigStr = `timestamp=${timestamp}${CLOUDINARY_SECRET}`;
+    const signature = crypto.createHash('sha1').update(sigStr).digest('hex');
+    const formData = new URLSearchParams();
+    formData.append('file', base64Data);
+    formData.append('timestamp', timestamp);
+    formData.append('api_key', CLOUDINARY_KEY);
+    formData.append('signature', signature);
+    const r = await axios.post(
+      `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/image/upload`,
+      formData.toString(),
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, maxContentLength: Infinity, maxBodyLength: Infinity }
+    );
+    return r.data.secure_url;
+  } catch (e) {
+    console.error('Cloudinary upload failed:', e.response?.data || e.message);
+    return null;
+  }
+}
+
+// ════════════════════════════════════════
 //  新增：LIFF 表單 API
 // ════════════════════════════════════════
 
@@ -389,7 +381,13 @@ app.post('/api/anomaly', async (req, res) => {
     // 2. 產生流水單號
     const wgNumber = genWGNumber();
 
-    // 3. 組 Notion properties（對應你的實際欄位）
+    // 3. 上傳照片到 Cloudinary
+    let photoUrl = null;
+    if (d.photoData) {
+      photoUrl = await uploadToCloudinary(d.photoData);
+    }
+
+    // 4. 組 Notion properties（對應你的實際欄位）
     const toText = (v) => [{ text: { content: v ? String(v) : '' } }];
     const properties = {
       '異常單號':     { title: [{ text: { content: wgNumber } }] },
@@ -407,9 +405,18 @@ app.post('/api/anomaly', async (req, res) => {
       '異常比例':     { rich_text: toText(d.ratio || '') },
       '目前處理狀態': { rich_text: toText('未開始') },
       '回報人':       { rich_text: toText(reporterName) },
+      '異常照片':     photoUrl ? { url: photoUrl } : { url: null },
     };
 
     const pageBody = { parent: { database_id: NOTION_DATABASE_ID }, properties };
+
+    // 5. 如果有照片也加到頁面內容
+    if (photoUrl) {
+      pageBody.children = [{
+        object: 'block', type: 'image',
+        image: { type: 'external', external: { url: photoUrl } }
+      }];
+    }
 
     await axios.post('https://api.notion.com/v1/pages', pageBody, {
       headers: {
@@ -419,7 +426,7 @@ app.post('/api/anomaly', async (req, res) => {
       }
     });
 
-    // 4. 推播通知給主管
+    // 6. 推播通知給主管
     const judgeEmoji = d.judge === '驗退X' ? '❌' : d.judge === '特採△' ? '⚠️' : '🔧';
     const msg =
       `【異常通報 ${wgNumber}】\n` +
@@ -430,7 +437,8 @@ app.post('/api/anomaly', async (req, res) => {
       `⚠️ 異常：${d.anomaly}\n` +
       `🔢 訂單數量：${d.qty}　比例：${d.ratio}\n` +
       `${judgeEmoji} 判定：${d.judge}\n` +
-      `📅 日期：${d.date}`;
+      `📅 日期：${d.date}` +
+      (photoUrl ? `\n📷 照片：${photoUrl}` : '');
 
     for (const uid of NOTIFY_USERS) {
       await pushText(uid, msg).catch(e => console.error('push failed:', e.message));
