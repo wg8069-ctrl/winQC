@@ -201,7 +201,7 @@ async function handleMessage(event) {
           replyToken,
           messages: [{
             type: 'text',
-            text: '🔍 請選擇查詢方式：',
+            text: '🔍 請選擇要查詢哪個欄位的關鍵字：',
             quickReply: {
               items: [
                 { type: 'action', action: { type: 'message', label: '🔩 零件名稱', text: 'search:零件名稱' } },
