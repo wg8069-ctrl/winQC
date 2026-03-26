@@ -132,13 +132,40 @@ async function searchNotion(keyword) {
 //  原有的 Bot 對話邏輯（完全不動）
 // ════════════════════════════════════════
 
-const MAIN_MENU =
-  '📋 WinGun 異常回報系統\n\n' +
-  '請選擇功能：\n\n' +
-  '1️⃣  回報異常\n' +
-  '2️⃣  查詢紀錄\n' +
-  '0️⃣  顯示此選單\n\n' +
-  '（直接輸入數字選擇）';
+const MAIN_MENU = '請使用下方選單進行操作 👇';
+
+async function replyFlex(replyToken) {
+  await axios.post('https://api.line.me/v2/bot/message/reply',
+    {
+      replyToken,
+      messages: [{
+        type: 'text',
+        text: 'WinGun 異常通報 👇',
+        quickReply: {
+          items: [
+            {
+              type: 'action',
+              action: {
+                type: 'uri',
+                label: '📋 建立異常單',
+                uri: 'https://liff.line.me/2009600334-UpN6esDu'
+              }
+            },
+            {
+              type: 'action',
+              action: {
+                type: 'message',
+                label: '🔍 查詢紀錄',
+                text: '查詢'
+              }
+            }
+          ]
+        }
+      }]
+    },
+    { headers: { Authorization: `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}`, 'Content-Type': 'application/json' } }
+  );
+}
 
 const BASE_STEPS = [
   { key: 'location',   required: true,  ask: '📍 請輸入發生地點\n（例如：本廠／二廠／廠商地）' },
@@ -186,13 +213,13 @@ async function handleMessage(event) {
 
   if (text === '0' || text === '選單' || text === 'menu') {
     delete sessions[userId];
-    await replyText(replyToken, MAIN_MENU);
+    await replyFlex(replyToken);
     return;
   }
 
-  if (text === '重填' || text === '取消' || text === '2') {
+  if (text === '重填' || text === '取消') {
     delete sessions[userId];
-    await replyText(replyToken, '已取消，重新開始。\n\n' + MAIN_MENU);
+    await replyFlex(replyToken);
     return;
   }
 
@@ -222,7 +249,7 @@ async function handleMessage(event) {
         { headers: { Authorization: `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}`, 'Content-Type': 'application/json' } }
       );
     } else {
-      await replyText(replyToken, MAIN_MENU);
+      await replyFlex(replyToken);
     }
     return;
   }
@@ -415,7 +442,7 @@ async function handleMessage(event) {
     return;
   }
 
-  await replyText(replyToken, MAIN_MENU);
+  await replyFlex(replyToken);
 }
 
 // ════════════════════════════════════════
@@ -559,9 +586,7 @@ app.post('/webhook', async (req, res) => {
   for (const event of (req.body.events || [])) {
     if (event.type === 'message') await handleMessage(event).catch(console.error);
     if (event.type === 'follow') {
-      await replyText(event.replyToken,
-        '👋 歡迎使用 WinGun 異常回報系統！\n\n' + MAIN_MENU
-      ).catch(console.error);
+      await replyFlex(event.replyToken).catch(console.error);
     }
   }
 });
