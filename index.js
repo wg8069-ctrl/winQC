@@ -201,11 +201,109 @@ async function handleMessage(event) {
       sessions[userId] = { step: 0, data: {} };
       await replyText(replyToken, '📋 開始填寫異常回報！\n隨時輸入「0」回主選單\n\n' + BASE_STEPS[0].ask);
     } else if (text === '2' || text === '查詢紀錄' || text === '查詢') {
-      sessions[userId] = { step: 'searching', data: {} };
-      await replyText(replyToken, '🔍 請輸入查詢關鍵字\n\n可查詢：產品編號、品名、異常狀況、異常廠商、異常單號\n\n輸入「0」回主選單');
+      sessions[userId] = { step: 'search_pick', data: {} };
+      await axios.post('https://api.line.me/v2/bot/message/reply',
+        {
+          replyToken,
+          messages: [{
+            type: 'text',
+            text: '🔍 請選擇查詢方式：',
+            quickReply: {
+              items: [
+                { type: 'action', action: { type: 'message', label: '🔩 零件名稱', text: 'search:零件名稱' } },
+                { type: 'action', action: { type: 'message', label: '📋 異常單號', text: 'search:異常單號' } },
+                { type: 'action', action: { type: 'message', label: '🏭 發生單位', text: 'search:發生單位' } },
+                { type: 'action', action: { type: 'message', label: '👤 回報人',   text: 'search:回報人'   } },
+                { type: 'action', action: { type: 'message', label: '⚠️ 異常狀況', text: 'search:異常狀況' } },
+              ]
+            }
+          }]
+        },
+        { headers: { Authorization: `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}`, 'Content-Type': 'application/json' } }
+      );
     } else {
       await replyText(replyToken, MAIN_MENU);
     }
+    return;
+  }
+
+  if (session.step === 'search_pick') {
+    if (text && text.startsWith('search:')) {
+      const field = text.replace('search:', '');
+      sessions[userId] = { step: 'search_keyword', data: { field } };
+      const fieldLabels = {
+        '零件名稱': '零件名稱（例如：WC4-795B）',
+        '異常單號': '異常單號（例如：WG20260326）',
+        '發生單位': '發生單位（例如：生管一廠）',
+        '回報人':   '回報人姓名',
+        '異常狀況': '異常狀況關鍵字（例如：斷差）',
+      };
+      await replyText(replyToken, `🔍 查詢 ${field}\n\n請輸入${fieldLabels[field] || '關鍵字'}：\n\n輸入「0」回主選單`);
+    } else {
+      await replyText(replyToken, '請點選上方按鈕選擇查詢方式\n\n輸入「0」回主選單');
+    }
+    return;
+  }
+
+  if (session.step === 'search_keyword') {
+    if (!text) { await replyText(replyToken, '請輸入關鍵字'); return; }
+    const field = session.data.field;
+    try {
+      const filter = { property: field, rich_text: { contains: text } };
+      if (field === '異常單號') {
+        filter.property = '異常單號';
+        filter.title = { contains: text };
+        delete filter.rich_text;
+      }
+      const res = await axios.post(
+        `https://api.notion.com/v1/databases/${NOTION_DATABASE_ID}/query`,
+        { filter, sorts: [{ property: '發生日期', direction: 'descending' }], page_size: 5 },
+        { headers: { Authorization: `Bearer ${NOTION_TOKEN}`, 'Notion-Version': '2022-06-28', 'Content-Type': 'application/json' } }
+      );
+      const results = res.data.results.map(p => {
+        const props = p.properties;
+        const getText = (k) => props[k]?.rich_text?.[0]?.text?.content || props[k]?.title?.[0]?.text?.content || '';
+        const getNum  = (k) => props[k]?.number ?? '';
+        const getDate = (k) => props[k]?.date?.start?.slice(0,10) || '';
+        const getUrl  = (k) => props[k]?.url || '';
+        return {
+          num:     getText('異常單號'),
+          date:    getDate('發生日期'),
+          unit:    getText('發生單位'),
+          part:    getText('零件名稱'),
+          issue:   getText('異常狀況'),
+          ratio:   getText('異常比例'),
+          judge:   getText('判定'),
+          status:  getText('目前處理狀態'),
+          reporter:getText('回報人'),
+          photo:   getUrl('異常照片'),
+        };
+      });
+
+      if (results.length === 0) {
+        await replyText(replyToken, `🔍 查無「${text}」相關紀錄\n\n輸入「0」回主選單`);
+      } else {
+        const lines = [`🔍 找到 ${res.data.results.length} 筆「${text}」紀錄：\n`];
+        results.forEach((r, i) => {
+          const judgeEmoji = r.judge.includes('驗退') ? '❌' : r.judge.includes('特採') ? '⚠️' : r.judge.includes('加工') ? '🔧' : '🔘';
+          lines.push(
+            `${i+1}. ${r.num} ${r.date}\n` +
+            `   🏭 ${r.unit}　👤 ${r.reporter}\n` +
+            `   🔩 ${r.part}\n` +
+            `   ⚠️ ${r.issue}\n` +
+            `   📊 ${r.ratio}　${judgeEmoji} ${r.judge}\n` +
+            (r.photo ? `   📷 ${r.photo}` : '')
+          );
+        });
+        if (res.data.has_more) lines.push(`\n...僅顯示前 5 筆`);
+        lines.push('\n輸入「0」回主選單');
+        await replyText(replyToken, lines.join('\n'));
+      }
+    } catch (err) {
+      console.error(err.response?.data || err.message);
+      await replyText(replyToken, '❌ 查詢失敗，請通知管理員');
+    }
+    delete sessions[userId];
     return;
   }
 
