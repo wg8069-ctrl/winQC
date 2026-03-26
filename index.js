@@ -195,7 +195,44 @@ async function handleMessage(event) {
     await replyText(replyToken, '已取消，重新開始。\n\n' + MAIN_MENU);
     return;
   }
-
+if (text === '異常通報' || text === '通報' || text === '填單') {
+  await axios.post('https://api.line.me/v2/bot/message/reply',
+    {
+      replyToken,
+      messages: [{
+        type: 'flex',
+        altText: '點此開啟異常通報表單',
+        contents: {
+          type: 'bubble',
+          body: {
+            type: 'box',
+            layout: 'vertical',
+            contents: [
+              { type: 'text', text: '異常通報', weight: 'bold', size: 'xl', color: '#00b900' },
+              { type: 'text', text: '點下方按鈕開啟填單頁面', size: 'sm', color: '#888888', margin: 'md' }
+            ]
+          },
+          footer: {
+            type: 'box',
+            layout: 'vertical',
+            contents: [{
+              type: 'button',
+              style: 'primary',
+              color: '#00b900',
+              action: {
+                type: 'uri',
+                label: '開啟異常通報表單',
+                uri: 'https://liff.line.me/2009600334-UpN6esDu'
+              }
+            }]
+          }
+        }
+      }]
+    },
+    { headers: { Authorization: `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}`, 'Content-Type': 'application/json' } }
+  );
+  return;
+}
   if (session.step === 'idle') {
     if (text === '1' || text === '回報異常') {
       sessions[userId] = { step: 0, data: {} };
