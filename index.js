@@ -132,13 +132,7 @@ async function searchNotion(keyword) {
 //  原有的 Bot 對話邏輯（完全不動）
 // ════════════════════════════════════════
 
-const MAIN_MENU =
-  '📋 WinGun 異常回報系統\n\n' +
-  '請選擇功能：\n\n' +
-  '1️⃣  回報異常\n' +
-  '2️⃣  查詢紀錄\n' +
-  '0️⃣  顯示此選單\n\n' +
-  '（直接輸入數字選擇）';
+const MAIN_MENU = '請使用下方選單進行操作 👇';
 
 const BASE_STEPS = [
   { key: 'location',   required: true,  ask: '📍 請輸入發生地點\n（例如：本廠／二廠／廠商地）' },
