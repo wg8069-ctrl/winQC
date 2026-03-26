@@ -234,7 +234,7 @@ async function handleMessage(event) {
       };
       await replyText(replyToken, `🔍 查詢 ${field}\n\n請輸入${fieldLabels[field] || '關鍵字'}：\n\n輸入「0」回主選單`);
     } else {
-      await replyText(replyToken, '請點選按鈕選擇查詢方式\n\n或輸入「0」回主選單');
+      await replyText(replyToken, '請點選你要查詢的關鍵字\n\n或輸入「0」回主選單');
     }
     return;
   }
