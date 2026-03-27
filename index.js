@@ -521,11 +521,10 @@ app.post('/api/anomaly', async (req, res) => {
     const properties = {
       '異常單號':     { title: [{ text: { content: wgNumber } }] },
       '發生日期':     { date: { start: new Date().toISOString().split('T')[0] } },
-      '發生地':       { rich_text: toText(d.unit || '') },
       '發生單位':     { rich_text: toText(d.unit || '') },
       '責任單位':     { rich_text: toText(d.resp || '') },
       '客戶':         { rich_text: toText('') },
-      '零件編號':     { rich_text: toText('') },
+      '系列別':       { rich_text: toText(d.series || '') },
       '零件名稱':     { rich_text: toText(d.product || '') },
       '異常狀況':     { rich_text: toText(d.anomaly || '') },
       '處理方式':     { rich_text: toText(d.judge || '') },
@@ -535,6 +534,7 @@ app.post('/api/anomaly', async (req, res) => {
       '目前處理狀態': { rich_text: toText('未開始') },
       '回報人':       { rich_text: toText(reporterName) },
       '異常照片':     photoUrl ? { url: photoUrl } : { url: null },
+      '異常照片2':    photoUrl2 ? { url: photoUrl2 } : { url: null },
     };
 
     const pageBody = { parent: { database_id: NOTION_DATABASE_ID }, properties };
@@ -565,7 +565,7 @@ app.post('/api/anomaly', async (req, res) => {
     const msg =
       `【異常通報 ${wgNumber}】\n` +
       `👤 回報人：${reporterName}\n` +
-      `📦 品名：${d.product || '(未填)'}\n` +
+      `📦 品名：${d.product || '(未填)'}　系列：${d.series || ''}\n` +
       `📍 發生單位：${d.unit}\n` +
       `🏭 責任單位：${d.resp}\n` +
       `⚠️ 異常：${d.anomaly}\n` +
