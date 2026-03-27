@@ -204,6 +204,7 @@ function buildSummary(d) {
 
 async function handleMessage(event) {
   const userId = event.source?.userId;
+    console.log('userId:', userId);
   const replyToken = event.replyToken;
   const text = event.message?.type === 'text' ? event.message.text.trim() : null;
   const imageId = event.message?.type === 'image' ? event.message.id : null;
