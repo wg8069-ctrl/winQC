@@ -12,19 +12,13 @@ app.use((req, res, next) => {
 });
 app.use(express.json({ limit: '10mb', verify: (req, res, buf) => { req.rawBody = buf; } }));
 
-// ── 環境變數（原有的，不用動）──
 const LINE_CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET;
 const LINE_CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
 const NOTION_TOKEN = process.env.NOTION_TOKEN;
 const NOTION_DATABASE_ID = process.env.NOTION_DATABASE_ID;
-// ── 新增：LIFF 通知對象（Render 環境變數加這個）──
 const NOTIFY_USERS = (process.env.NOTIFY_USERS || '').split(',').filter(Boolean);
 
 const sessions = {};
-
-// ════════════════════════════════════════
-//  原有的 helper 函式（完全不動）
-// ════════════════════════════════════════
 
 function verifySignature(req) {
   const sig = req.headers['x-line-signature'];
@@ -71,7 +65,7 @@ async function createNotionPage(data, senderName) {
   const caseNum = data.caseNumber ? parseInt(data.caseNumber.replace(/[^0-9]/g, '')) || null : null;
 
   const properties = {
-    '發生地':                    { title: [{ text: { content: data.location || '(未填)' } }] },
+    '異常單號':                  { title: [{ text: { content: data.location || '(未填)' } }] },
     '產品編號':                  { rich_text: toText(data.productId) },
     '品名':                      { rich_text: toText(data.itemName) },
     '異常狀況':                  { rich_text: toText(data.issue) },
@@ -101,12 +95,9 @@ async function createNotionPage(data, senderName) {
 }
 
 async function searchNotion(keyword) {
-  const filters = ['產品編號','品名','異常狀況','異常廠商','免開異常(請輸入原因)'].map(field => ({
+  const filters = ['零件名稱','異常狀況','發生單位','回報人'].map(field => ({
     property: field, rich_text: { contains: keyword }
   }));
-  if (!isNaN(keyword)) {
-    filters.push({ property: '已開立異常單(請輸入單號)', number: { equals: parseInt(keyword) } });
-  }
   const res = await axios.post(
     `https://api.notion.com/v1/databases/${NOTION_DATABASE_ID}/query`,
     { filter: { or: filters }, sorts: [{ property: '發生日期', direction: 'descending' }] },
@@ -114,23 +105,25 @@ async function searchNotion(keyword) {
   );
   return res.data.results.map(p => {
     const props = p.properties;
-    const getText = (k) => props[k]?.rich_text?.[0]?.text?.content || '';
+    const getText = (k) => props[k]?.rich_text?.[0]?.text?.content || props[k]?.title?.[0]?.text?.content || '';
     const getNum  = (k) => props[k]?.number ?? '';
     const getDate = (k) => props[k]?.date?.start?.slice(0,10) || '';
+    const getUrl  = (k) => props[k]?.url || '';
     return {
-      date:       getDate('發生日期'),
-      productId:  getText('產品編號'),
-      issue:      getText('異常狀況'),
-      quantity:   getNum('數量'),
-      status:     getText('目前處理狀態'),
-      caseNumber: getNum('已開立異常單(請輸入單號)'),
+      num:      getText('異常單號'),
+      date:     getDate('發生日期'),
+      unit:     getText('發生單位'),
+      part:     getText('零件名稱'),
+      series:   getText('系列別'),
+      issue:    getText('異常狀況'),
+      ratio:    getText('異常比例'),
+      judge:    getText('判定'),
+      status:   getText('目前處理狀態'),
+      reporter: getText('回報人'),
+      photo:    getUrl('異常照片'),
     };
   });
 }
-
-// ════════════════════════════════════════
-//  原有的 Bot 對話邏輯（完全不動）
-// ════════════════════════════════════════
 
 const MAIN_MENU = '請使用下方選單進行操作 👇';
 
@@ -143,22 +136,8 @@ async function replyFlex(replyToken) {
         text: 'WinGun 異常通報 👇',
         quickReply: {
           items: [
-            {
-              type: 'action',
-              action: {
-                type: 'uri',
-                label: '📋 建立異常單',
-                uri: 'https://liff.line.me/2009600334-UpN6esDu'
-              }
-            },
-            {
-              type: 'action',
-              action: {
-                type: 'message',
-                label: '🔍 查詢紀錄',
-                text: '查詢'
-              }
-            }
+            { type: 'action', action: { type: 'uri', label: '📋 建立異常單', uri: 'https://liff.line.me/2009600334-UpN6esDu' } },
+            { type: 'action', action: { type: 'message', label: '🔍 查詢紀錄', text: '查詢' } }
           ]
         }
       }]
@@ -208,6 +187,8 @@ async function handleMessage(event) {
   const text = event.message?.type === 'text' ? event.message.text.trim() : null;
   const imageId = event.message?.type === 'image' ? event.message.id : null;
   if (!userId) return;
+
+  console.log('userId:', userId);
 
   let session = sessions[userId] || { step: 'idle', data: {} };
 
@@ -261,7 +242,7 @@ async function handleMessage(event) {
       const fieldLabels = {
         '零件名稱': '零件名稱（例如：WC4-795B）',
         '異常單號': '異常單號（例如：WG20260326）',
-        '發生單位': '發生單位（例如：生管一廠）',
+        '發生單位': '發生單位（例如：本廠）',
         '回報人':   '回報人姓名',
         '異常狀況': '異常狀況關鍵字（例如：斷差）',
       };
@@ -276,12 +257,10 @@ async function handleMessage(event) {
     if (!text) { await replyText(replyToken, '請輸入關鍵字'); return; }
     const field = session.data.field;
     try {
-      const filter = { property: field, rich_text: { contains: text } };
-      if (field === '異常單號') {
-        filter.property = '異常單號';
-        filter.title = { contains: text };
-        delete filter.rich_text;
-      }
+      const filter = field === '異常單號'
+        ? { property: '異常單號', title: { contains: text } }
+        : { property: field, rich_text: { contains: text } };
+
       const res = await axios.post(
         `https://api.notion.com/v1/databases/${NOTION_DATABASE_ID}/query`,
         { filter, sorts: [{ property: '發生日期', direction: 'descending' }], page_size: 5 },
@@ -290,20 +269,20 @@ async function handleMessage(event) {
       const results = res.data.results.map(p => {
         const props = p.properties;
         const getText = (k) => props[k]?.rich_text?.[0]?.text?.content || props[k]?.title?.[0]?.text?.content || '';
-        const getNum  = (k) => props[k]?.number ?? '';
         const getDate = (k) => props[k]?.date?.start?.slice(0,10) || '';
         const getUrl  = (k) => props[k]?.url || '';
         return {
-          num:     getText('異常單號'),
-          date:    getDate('發生日期'),
-          unit:    getText('發生單位'),
-          part:    getText('零件名稱'),
-          issue:   getText('異常狀況'),
-          ratio:   getText('異常比例'),
-          judge:   getText('判定'),
-          status:  getText('目前處理狀態'),
-          reporter:getText('回報人'),
-          photo:   getUrl('異常照片'),
+          num:      getText('異常單號'),
+          date:     getDate('發生日期'),
+          unit:     getText('發生單位'),
+          part:     getText('零件名稱'),
+          series:   getText('系列別'),
+          issue:    getText('異常狀況'),
+          ratio:    getText('異常比例'),
+          judge:    getText('判定'),
+          status:   getText('目前處理狀態'),
+          reporter: getText('回報人'),
+          photo:    getUrl('異常照片'),
         };
       });
 
@@ -316,41 +295,13 @@ async function handleMessage(event) {
           lines.push(
             `${i+1}. ${r.num} ${r.date}\n` +
             `   🏭 ${r.unit}　👤 ${r.reporter}\n` +
-            `   🔩 ${r.part}\n` +
+            `   🔩 ${r.part}　📂 ${r.series}\n` +
             `   ⚠️ ${r.issue}\n` +
             `   📊 ${r.ratio}　${judgeEmoji} ${r.judge}\n` +
             (r.photo ? `   📷 ${r.photo}` : '')
           );
         });
         if (res.data.has_more) lines.push(`\n...僅顯示前 5 筆`);
-        lines.push('\n輸入「0」回主選單');
-        await replyText(replyToken, lines.join('\n'));
-      }
-    } catch (err) {
-      console.error(err.response?.data || err.message);
-      await replyText(replyToken, '❌ 查詢失敗，請通知管理員');
-    }
-    delete sessions[userId];
-    return;
-  }
-
-  if (session.step === 'searching') {
-    if (!text) { await replyText(replyToken, '請輸入查詢關鍵字'); return; }
-    try {
-      const results = await searchNotion(text);
-      if (results.length === 0) {
-        await replyText(replyToken, `🔍 查無「${text}」相關紀錄\n\n輸入「0」回主選單`);
-      } else {
-        const lines = [`🔍 找到 ${results.length} 筆「${text}」相關紀錄：\n`];
-        results.slice(0, 5).forEach((r, i) => {
-          lines.push(
-            `${i + 1}. ${r.date} ${r.productId}\n` +
-            `   📋 ${r.issue}\n` +
-            `   🔢 ${r.quantity} pcs｜🔘 ${r.status}` +
-            (r.caseNumber ? `\n   📝 單號：${r.caseNumber}` : '')
-          );
-        });
-        if (results.length > 5) lines.push(`\n...共 ${results.length} 筆，僅顯示前 5 筆`);
         lines.push('\n輸入「0」回主選單');
         await replyText(replyToken, lines.join('\n'));
       }
@@ -446,7 +397,7 @@ async function handleMessage(event) {
 }
 
 // ════════════════════════════════════════
-//  流水號產生器（WG+年+月+日+兩位流水）
+//  流水號產生器
 // ════════════════════════════════════════
 const dailyCounters = {};
 
@@ -460,6 +411,7 @@ function genWGNumber() {
   const seq = String(dailyCounters[key]).padStart(2, '0');
   return `WG${y}${m}${d}${seq}`;
 }
+
 // ════════════════════════════════════════
 //  Cloudinary 照片上傳
 // ════════════════════════════════════════
@@ -490,33 +442,24 @@ async function uploadToCloudinary(base64Data) {
 }
 
 // ════════════════════════════════════════
-//  新增：LIFF 表單 API
+//  LIFF 表單 API
 // ════════════════════════════════════════
-
 app.post('/api/anomaly', async (req, res) => {
   try {
     const d = req.body;
 
-    // 1. 從 LINE 取得回報人名稱
     let reporterName = '(未知)';
     if (d.userId) {
       reporterName = await getDisplayName(d.userId);
     }
 
-    // 2. 產生流水單號
     const wgNumber = genWGNumber();
 
-    // 3. 上傳照片到 Cloudinary
     let photoUrl = null;
     let photoUrl2 = null;
-    if (d.photoData) {
-      photoUrl = await uploadToCloudinary(d.photoData);
-    }
-    if (d.photoData2) {
-      photoUrl2 = await uploadToCloudinary(d.photoData2);
-    }
+    if (d.photoData)  photoUrl  = await uploadToCloudinary(d.photoData);
+    if (d.photoData2) photoUrl2 = await uploadToCloudinary(d.photoData2);
 
-    // 4. 組 Notion properties（對應你的實際欄位）
     const toText = (v) => [{ text: { content: v ? String(v) : '' } }];
     const properties = {
       '異常單號':     { title: [{ text: { content: wgNumber } }] },
@@ -533,34 +476,22 @@ app.post('/api/anomaly', async (req, res) => {
       '異常比例':     { rich_text: toText(d.ratio || '') },
       '目前處理狀態': { rich_text: toText('未開始') },
       '回報人':       { rich_text: toText(reporterName) },
-      '異常照片':     photoUrl ? { url: photoUrl } : { url: null },
+      '異常照片':     photoUrl  ? { url: photoUrl  } : { url: null },
       '異常照片2':    photoUrl2 ? { url: photoUrl2 } : { url: null },
     };
 
     const pageBody = { parent: { database_id: NOTION_DATABASE_ID }, properties };
 
-    // 5. 如果有照片也加到頁面內容
     if (photoUrl || photoUrl2) {
       pageBody.children = [];
-      if (photoUrl) pageBody.children.push({
-        object: 'block', type: 'image',
-        image: { type: 'external', external: { url: photoUrl } }
-      });
-      if (photoUrl2) pageBody.children.push({
-        object: 'block', type: 'image',
-        image: { type: 'external', external: { url: photoUrl2 } }
-      });
+      if (photoUrl)  pageBody.children.push({ object:'block', type:'image', image:{ type:'external', external:{ url: photoUrl  } } });
+      if (photoUrl2) pageBody.children.push({ object:'block', type:'image', image:{ type:'external', external:{ url: photoUrl2 } } });
     }
 
     await axios.post('https://api.notion.com/v1/pages', pageBody, {
-      headers: {
-        Authorization: `Bearer ${NOTION_TOKEN}`,
-        'Notion-Version': '2022-06-28',
-        'Content-Type': 'application/json'
-      }
+      headers: { Authorization: `Bearer ${NOTION_TOKEN}`, 'Notion-Version': '2022-06-28', 'Content-Type': 'application/json' }
     });
 
-    // 6. 推播通知給主管
     const judgeEmoji = d.judge === '驗退X' ? '❌' : d.judge === '特採△' ? '⚠️' : '🔧';
     const msg =
       `【異常通報 ${wgNumber}】\n` +
@@ -572,7 +503,7 @@ app.post('/api/anomaly', async (req, res) => {
       `🔢 訂單數量：${d.qty}　比例：${d.ratio}\n` +
       `${judgeEmoji} 判定：${d.judge}\n` +
       `📅 日期：${d.date}` +
-      (photoUrl ? `\n📷 照片1：${photoUrl}` : '') +
+      (photoUrl  ? `\n📷 照片1：${photoUrl}`  : '') +
       (photoUrl2 ? `\n📷 照片2：${photoUrl2}` : '');
 
     for (const uid of NOTIFY_USERS) {
@@ -586,18 +517,12 @@ app.post('/api/anomaly', async (req, res) => {
   }
 });
 
-// ════════════════════════════════════════
-//  原有的 webhook + 健康檢查（不動）
-// ════════════════════════════════════════
-
 app.post('/webhook', async (req, res) => {
   if (!verifySignature(req)) return res.status(401).send('Unauthorized');
   res.status(200).send('OK');
   for (const event of (req.body.events || [])) {
     if (event.type === 'message') await handleMessage(event).catch(console.error);
-    if (event.type === 'follow') {
-      await replyFlex(event.replyToken).catch(console.error);
-    }
+    if (event.type === 'follow') await replyFlex(event.replyToken).catch(console.error);
   }
 });
 
