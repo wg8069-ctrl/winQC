@@ -204,7 +204,6 @@ function buildSummary(d) {
 
 async function handleMessage(event) {
   const userId = event.source?.userId;
-    console.log('userId:', userId);
   const replyToken = event.replyToken;
   const text = event.message?.type === 'text' ? event.message.text.trim() : null;
   const imageId = event.message?.type === 'image' ? event.message.id : null;
@@ -509,8 +508,12 @@ app.post('/api/anomaly', async (req, res) => {
 
     // 3. 上傳照片到 Cloudinary
     let photoUrl = null;
+    let photoUrl2 = null;
     if (d.photoData) {
       photoUrl = await uploadToCloudinary(d.photoData);
+    }
+    if (d.photoData2) {
+      photoUrl2 = await uploadToCloudinary(d.photoData2);
     }
 
     // 4. 組 Notion properties（對應你的實際欄位）
@@ -537,11 +540,16 @@ app.post('/api/anomaly', async (req, res) => {
     const pageBody = { parent: { database_id: NOTION_DATABASE_ID }, properties };
 
     // 5. 如果有照片也加到頁面內容
-    if (photoUrl) {
-      pageBody.children = [{
+    if (photoUrl || photoUrl2) {
+      pageBody.children = [];
+      if (photoUrl) pageBody.children.push({
         object: 'block', type: 'image',
         image: { type: 'external', external: { url: photoUrl } }
-      }];
+      });
+      if (photoUrl2) pageBody.children.push({
+        object: 'block', type: 'image',
+        image: { type: 'external', external: { url: photoUrl2 } }
+      });
     }
 
     await axios.post('https://api.notion.com/v1/pages', pageBody, {
@@ -564,7 +572,8 @@ app.post('/api/anomaly', async (req, res) => {
       `🔢 訂單數量：${d.qty}　比例：${d.ratio}\n` +
       `${judgeEmoji} 判定：${d.judge}\n` +
       `📅 日期：${d.date}` +
-      (photoUrl ? `\n📷 照片：${photoUrl}` : '');
+      (photoUrl ? `\n📷 照片1：${photoUrl}` : '') +
+      (photoUrl2 ? `\n📷 照片2：${photoUrl2}` : '');
 
     for (const uid of NOTIFY_USERS) {
       await pushText(uid, msg).catch(e => console.error('push failed:', e.message));
