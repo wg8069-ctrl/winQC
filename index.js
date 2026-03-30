@@ -1,7 +1,10 @@
 const express = require('express');
 const crypto = require('crypto');
 const axios = require('axios');
+const ExcelJS = require('exceljs');
 const htmlPdf = require('html-pdf-node');
+const path = require('path');
+const fs = require('fs');
 
 const app = express();
 app.use((req, res, next) => {
@@ -576,7 +579,7 @@ async function generateAndUploadPDF(data) {
   try {
     const html = buildPdfHtml(data);
     const file = { content: html };
-    const options = { format: 'A4', margin: { top: '15mm', bottom: '15mm', left: '15mm', right: '15mm' } };
+    const options = { format: 'A4', landscape: true, margin: { top: '8mm', bottom: '8mm', left: '8mm', right: '8mm' } };
     const pdfBuffer = await htmlPdf.generatePdf(file, options);
     const base64 = 'data:application/pdf;base64,' + pdfBuffer.toString('base64');
 
