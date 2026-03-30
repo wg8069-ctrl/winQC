@@ -474,10 +474,17 @@ async function generateAndUploadExcel(data) {
     const buffer = await workbook.xlsx.writeBuffer();
     const base64 = 'data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,' + buffer.toString('base64');
 
+    const publicId = `excel_${data.wgNumber}.xlsx`;
+    const timestamp = Math.floor(Date.now() / 1000);
+    const sigStr = `public_id=${publicId}&timestamp=${timestamp}${CLOUDINARY_SECRET}`;
+    const signature = crypto.createHash('sha1').update(sigStr).digest('hex');
+
     const formData = new URLSearchParams();
     formData.append('file', base64);
     formData.append('api_key', CLOUDINARY_KEY);
-    formData.append('upload_preset', 'ml_default');
+    formData.append('timestamp', String(timestamp));
+    formData.append('signature', signature);
+    formData.append('public_id', publicId);
 
     const r = await axios.post(
       `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/raw/upload`,
