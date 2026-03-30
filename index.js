@@ -2,7 +2,6 @@ const express = require('express');
 const crypto = require('crypto');
 const axios = require('axios');
 const ExcelJS = require('exceljs');
-const htmlPdf = require('html-pdf-node');
 const path = require('path');
 const fs = require('fs');
 
@@ -446,164 +445,34 @@ async function uploadToCloudinary(base64Data) {
 }
 
 // ════════════════════════════════════════
-//  PDF 產生（HTML → PDF）+ 上傳 Cloudinary
+
+
 // ════════════════════════════════════════
-function buildPdfHtml(data, fontBase64Regular, fontBase64Bold) {
-  const j = data.judge || '';
-  const chk = (v) => v ? '☑' : '☐';
-  const fontFace = fontBase64Regular ? `
-@font-face {
-  font-family: 'NotoSansTC';
-  font-weight: 400;
-  src: url('data:font/truetype;base64,${fontBase64Regular}') format('truetype');
-}
-@font-face {
-  font-family: 'NotoSansTC';
-  font-weight: 700;
-  src: url('data:font/truetype;base64,${fontBase64Bold}') format('truetype');
-}` : '';
-  const fontFamily = fontBase64Regular ? "'NotoSansTC'" : "'Microsoft JhengHei','PingFang TC','Arial'";
-  return `<!DOCTYPE html>
-<html>
-<head>
-<meta charset="UTF-8">
-<style>
-${fontFace}
-*{box-sizing:border-box;margin:0;padding:0;}
-body{font-family:${fontFamily},sans-serif;font-size:11px;padding:8px;width:100%;}
-table{width:100%;border-collapse:collapse;table-layout:fixed;}
-td{border:1px solid #000;padding:2px 4px;font-size:10px;vertical-align:middle;overflow:hidden;font-family:${fontFamily},sans-serif;}
-.nb{border:none;}
-.bold{font-weight:bold;}
-.center{text-align:center;}
-.bg{background:#e0e0e0;}
-.big{font-size:16px;font-weight:bold;}
-.med{font-size:13px;font-weight:bold;}
-.tall{height:180px;vertical-align:top;padding:4px;}
-.sig{height:60px;}
-.note{font-size:8px;margin-top:6px;line-height:1.6;font-family:'Noto Sans TC','Microsoft JhengHei',Arial,sans-serif;}
-.right-panel{font-size:10px;}
-</style>
-</head>
-<body>
-<table>
-  <!-- 標題列 -->
-  <tr>
-    <td colspan="2" rowspan="2" class="nb" style="width:90px;font-size:13px;font-weight:bold;border:2px solid #000;text-align:center;">
-      偉剛科技<br>WinGun
-    </td>
-    <td colspan="8" rowspan="2" class="big center" style="border:2px solid #000;">
-      品質異常通知單&nbsp;&nbsp;&nbsp;品質判定：驗退X. 特採△. 加工○
-    </td>
-    <td colspan="3" class="center bold bg" style="font-size:10px;">外發加工</td>
-    <td colspan="2" class="center"></td>
-    <td colspan="2" class="center bold bg">試組</td>
-    <td colspan="2" class="center bold bg">線前加工</td>
-    <td colspan="2" class="center bold bg">上線中</td>
-  </tr>
-  <tr>
-    <td colspan="2" class="center bold bg">特採</td>
-    <td colspan="2" class="center bold bg">退料</td>
-    <td colspan="5" class="center bold bg">預計回廠時間</td>
-    <td colspan="2" class="center"></td>
-  </tr>
-  <!-- 欄位標題列 -->
-  <tr style="height:28px;">
-    <td class="center bg bold" style="width:55px;">發生日期</td>
-    <td class="center bg bold" style="width:55px;">發生單位</td>
-    <td class="center bg bold" style="width:55px;">責任單位</td>
-    <td class="center bg bold" style="width:45px;">客戶</td>
-    <td class="center bg bold" style="width:80px;">零件名稱</td>
-    <td class="center bg bold" style="width:60px;">零件編號</td>
-    <td class="center bg bold" style="width:60px;">異常狀況</td>
-    <td class="center bg bold" style="width:50px;">訂單數量</td>
-    <td class="center bg bold" style="width:50px;">異常數量</td>
-    <td class="center bg bold" style="width:50px;">異常比例</td>
-    <td class="center bg bold" style="width:40px;">判定</td>
-    <td class="center bg bold" style="width:40px;">確認</td>
-    <td colspan="3" class="center bold bg" style="font-size:10px;">上線日期</td>
-    <td colspan="4" class="center bold bg" style="font-size:10px;">出貨日/待驗日</td>
-    <td colspan="3" class="center bold bg right-panel">
-      產線處理 &nbsp; 來廠處理 &nbsp; 外廠處理
-    </td>
-  </tr>
-  <!-- 資料列 -->
-  <tr style="height:30px;">
-    <td class="center">${data.date || ''}</td>
-    <td class="center">${data.unit || ''}</td>
-    <td class="center">${data.resp || ''}</td>
-    <td class="center">${data.customer || ''}</td>
-    <td class="center">${data.product || ''}</td>
-    <td class="center">${data.series || ''}</td>
-    <td class="center">${data.anomaly || ''}</td>
-    <td class="center">${data.qty || ''}</td>
-    <td class="center"></td>
-    <td class="center">${data.ratio || ''}</td>
-    <td class="center bold">${j}</td>
-    <td class="center">${data.reporter || ''}</td>
-    <td colspan="3" class="center"></td>
-    <td colspan="4" class="center"></td>
-    <td colspan="3" class="right-panel center">
-      ${chk(false)} 產線 &nbsp; ${chk(false)} 來廠 &nbsp; ${chk(false)} 外廠
-    </td>
-  </tr>
-  <!-- 異常狀況 / 處理方式 標題 -->
-  <tr>
-    <td colspan="6" class="center bold bg">異常狀況</td>
-    <td colspan="6" class="center bold bg">處理方式</td>
-    <td colspan="9" class="right-panel" style="font-size:9px;">
-      補料狀況：${chk(false)} 廠商補 &nbsp; ${chk(false)} 庫出 &nbsp; 補料時間：____<br>
-      ${chk(false)} 停線 &nbsp; ${chk(false)} 無法一次完線 &nbsp; ${chk(false)} 再上線<br>
-      庫存數量：____ &nbsp; 庫存處理：${chk(false)} 加工 &nbsp; ${chk(false)} 報廢
-    </td>
-  </tr>
-  <!-- 異常狀況 / 處理方式 內容 -->
-  <tr>
-    <td colspan="6" class="tall">${(data.anomaly || '').replace(/、/g,'<br>')}</td>
-    <td colspan="6" class="tall">${j}</td>
-    <td colspan="9" class="tall" style="font-size:9px;vertical-align:top;">
-      <strong>${data.resp || ''}</strong>
-    </td>
-  </tr>
-  <!-- 廠商異常處理 -->
-  <tr>
-    <td colspan="3" class="bold bg">廠商異常處理</td>
-    <td colspan="9"></td>
-    <td colspan="9" class="center bold bg">廠商簽回</td>
-  </tr>
-  <tr class="sig">
-    <td colspan="12"></td>
-    <td colspan="9" class="center bold bg">簽核</td>
-  </tr>
-</table>
-<div class="note">
-  1.請於通知單到後3日內完成問題回覆並回傳，否則視同確認並以我司處理方式處理；無不可抗力因素且未回傳者則當月票期加開乙個月。如2個月未改善則終止合作。<br>
-  2.若於次月無異常通知則票期可提前一個月；若連續2個月無異常則以現金票支付貨款。<br>
-  3.生產前務必比對成品與樣品無誤；如有不符樣品需告知本司進行處理；未告知而逕行交貨者由製造者負責後續發生所有費用。
-</div>
-</body>
-</html>`;
-}
-
-async function generateAndUploadPDF(data) {
+//  Excel 產生（填入XLS模板）+ 上傳 Cloudinary
+// ════════════════════════════════════════
+async function generateAndUploadExcel(data) {
   try {
-    // 讀取字型檔案（上傳到 GitHub repo 的）
-    let fontBase64Regular = null;
-    let fontBase64Bold = null;
-    try {
-      const regularPath = path.join(__dirname, 'NotoSansTC-Regular.ttf');
-      const boldPath = path.join(__dirname, 'NotoSansTC-Bold.ttf');
-      fontBase64Regular = fs.readFileSync(regularPath).toString('base64');
-      fontBase64Bold = fs.readFileSync(boldPath).toString('base64');
-    } catch(e) {
-      console.log('Font files not found, using system fonts');
-    }
+    const templatePath = path.join(__dirname, 'template.xlsx');
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.readFile(templatePath);
 
-    const html = buildPdfHtml(data, fontBase64Regular, fontBase64Bold);
-    const file = { content: html };
-    const options = { format: 'A4', landscape: true, margin: { top: '8mm', bottom: '8mm', left: '8mm', right: '8mm' }, args: ['--no-sandbox', '--disable-setuid-sandbox'] };
-    const pdfBuffer = await htmlPdf.generatePdf(file, options);
-    const base64 = 'data:application/pdf;base64,' + pdfBuffer.toString('base64');
+    const ws = workbook.worksheets[0];
+
+    // 填入資料（對應 openpyxl 確認的儲存格位置）
+    ws.getCell('A4').value = data.date || '';
+    ws.getCell('B4').value = data.unit || '';
+    ws.getCell('C4').value = data.resp || '';
+    ws.getCell('D4').value = data.customer || '';
+    ws.getCell('E4').value = data.product || '';
+    ws.getCell('F4').value = data.series || '';
+    ws.getCell('G4').value = data.anomaly || '';
+    ws.getCell('H4').value = parseInt(data.qty) || null;
+    ws.getCell('J4').value = data.ratio || '';
+    ws.getCell('K4').value = data.judge || '';
+    ws.getCell('L4').value = data.reporter || '';
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    const base64 = 'data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,' + buffer.toString('base64');
 
     const formData = new URLSearchParams();
     formData.append('file', base64);
@@ -617,12 +486,11 @@ async function generateAndUploadPDF(data) {
     );
     return r.data.secure_url;
   } catch(e) {
-    console.error('PDF gen/upload failed:', e.message);
+    console.error('Excel gen/upload failed:', e.message);
     return null;
   }
 }
 
-// ════════════════════════════════════════
 //  LIFF 表單 API
 // ════════════════════════════════════════
 app.post('/api/anomaly', async (req, res) => {
@@ -675,13 +543,13 @@ app.post('/api/anomaly', async (req, res) => {
 
     const judgeEmoji = d.judge === '驗退X' ? '❌' : d.judge === '特採△' ? '⚠️' : '🔧';
 
-    // 產生 PDF
-    const pdfUrl = await generateAndUploadPDF({
+    // 產生 Excel
+    const excelUrl = await generateAndUploadExcel({
       wgNumber, date: d.date || new Date().toISOString().split('T')[0],
       unit: d.unit, resp: d.resp, series: d.series,
       product: d.product, qty: d.qty, ratio: d.ratio,
       anomaly: d.anomaly, judge: d.judge, reporter: reporterName,
-    }).catch(e => { console.error('PDF gen failed:', e.message); return null; });
+    }).catch(e => { console.error('Excel gen failed:', e.message); return null; });
 
     const msg =
       `【異常通報 ${wgNumber}】\n` +
@@ -695,7 +563,7 @@ app.post('/api/anomaly', async (req, res) => {
       `📅 日期：${d.date}` +
       (photoUrl  ? `\n📷 照片1：${photoUrl}`  : '') +
       (photoUrl2 ? `\n📷 照片2：${photoUrl2}` : '') +
-      (pdfUrl    ? `\n📄 異常單PDF：${pdfUrl}` : '');
+      (excelUrl  ? `\n📊 異常單：${excelUrl}` : '');
 
     for (const uid of NOTIFY_USERS) {
       await pushText(uid, msg).catch(e => console.error('push failed:', e.message));
