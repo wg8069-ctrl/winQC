@@ -1,6 +1,8 @@
 const express = require('express');
 const crypto = require('crypto');
 const axios = require('axios');
+const PDFDocument = require('pdfkit');
+const { Readable } = require('stream');
 
 const app = express();
 app.use((req, res, next) => {
@@ -442,6 +444,136 @@ async function uploadToCloudinary(base64Data) {
 }
 
 // ════════════════════════════════════════
+//  PDF 產生 + 上傳 Cloudinary
+// ════════════════════════════════════════
+async function generateAndUploadPDF(data) {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ size: 'A4', margin: 30 });
+    const chunks = [];
+    doc.on('data', chunk => chunks.push(chunk));
+    doc.on('end', async () => {
+      try {
+        const pdfBuffer = Buffer.concat(chunks);
+        const base64 = 'data:application/pdf;base64,' + pdfBuffer.toString('base64');
+
+        // 上傳到 Cloudinary
+        const timestamp = Math.floor(Date.now() / 1000);
+        const sigStr = `timestamp=${timestamp}${CLOUDINARY_SECRET}`;
+        const signature = crypto.createHash('sha1').update(sigStr).digest('hex');
+        const formData = new URLSearchParams();
+        formData.append('file', base64);
+        formData.append('timestamp', timestamp);
+        formData.append('api_key', CLOUDINARY_KEY);
+        formData.append('signature', signature);
+        formData.append('resource_type', 'raw');
+        formData.append('public_id', `anomaly_${data.wgNumber}`);
+
+        const r = await axios.post(
+          `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/raw/upload`,
+          formData.toString(),
+          { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, maxContentLength: Infinity, maxBodyLength: Infinity }
+        );
+        resolve(r.data.secure_url);
+      } catch(e) {
+        console.error('PDF upload failed:', e.message);
+        resolve(null);
+      }
+    });
+    doc.on('error', reject);
+
+    // ── PDF 內容 ──
+    const W = 535;
+    const judgeText = data.judge === '驗退X' ? '驗退X' : data.judge === '特採△' ? '特採△' : '加工○';
+
+    // 標題
+    doc.fontSize(16).font('Helvetica-Bold')
+      .text('品質異常通知單', 0, 35, { align: 'center', width: 595 });
+    doc.fontSize(11).font('Helvetica')
+      .text(`品質判定：驗退X  特採△  加工○`, 0, 55, { align: 'center', width: 595 });
+
+    // 公司名稱
+    doc.fontSize(12).font('Helvetica-Bold').text('WinGun 偉剛科技', 30, 35);
+
+    // 外框
+    doc.rect(30, 75, W, 30).stroke();
+    doc.rect(30, 75, 100, 30).stroke();
+    doc.rect(130, 75, W - 100, 30).stroke();
+
+    // 單號列
+    doc.fontSize(9).font('Helvetica-Bold').text('單據編號', 32, 82);
+    doc.font('Helvetica').text(data.wgNumber, 135, 82);
+
+    // 第二列：發生日期、發生單位、責任單位、品名、訂單數量等
+    doc.rect(30, 105, W, 25).stroke();
+    const cols = [60, 60, 60, 30];
+    const labels = ['發生日期', '發生單位', '責任單位', '客戶'];
+    let x = 30;
+    cols.forEach((w, i) => {
+      doc.rect(x, 105, w, 25).stroke();
+      doc.fontSize(8).font('Helvetica-Bold').text(labels[i], x+2, 111, { width: w-4 });
+      x += w;
+    });
+    // 品名欄
+    doc.rect(x, 105, 160, 25).stroke();
+    doc.fontSize(8).font('Helvetica-Bold').text('品名', x+2, 111);
+    x += 160;
+    // 其他欄
+    const rightCols = [['訂單數量', 50], ['異常數量', 50], ['異常比例', 50], ['判定', 40]];
+    rightCols.forEach(([label, w]) => {
+      doc.rect(x, 105, w, 25).stroke();
+      doc.fontSize(7).font('Helvetica-Bold').text(label, x+2, 108, { width: w-4 });
+      x += w;
+    });
+
+    // 填入數值列
+    doc.rect(30, 130, W, 25).stroke();
+    x = 30;
+    const vals = [data.date, data.unit, data.resp, ''];
+    cols.forEach((w, i) => {
+      doc.rect(x, 130, w, 25).stroke();
+      doc.fontSize(8).font('Helvetica').text(vals[i] || '', x+2, 136, { width: w-4 });
+      x += w;
+    });
+    // 品名值
+    doc.rect(x, 130, 160, 25).stroke();
+    doc.fontSize(8).font('Helvetica').text(data.product || '', x+2, 136, { width: 156 });
+    x += 160;
+    // 數值
+    const rightVals = [data.qty || '', '', data.ratio || '', judgeText];
+    rightCols.forEach(([, w], i) => {
+      doc.rect(x, 130, w, 25).stroke();
+      doc.fontSize(8).font('Helvetica').text(rightVals[i] || '', x+2, 136, { width: w-4 });
+      x += w;
+    });
+
+    // 異常狀況 / 處理方式
+    doc.rect(30, 155, W/2, 20).stroke();
+    doc.rect(30 + W/2, 155, W/2, 20).stroke();
+    doc.fontSize(9).font('Helvetica-Bold')
+      .text('異常狀況', 32, 160)
+      .text('處理方式', 30 + W/2 + 2, 160);
+
+    // 異常狀況內容
+    doc.rect(30, 175, W/2, 120).stroke();
+    doc.rect(30 + W/2, 175, W/2, 120).stroke();
+    doc.fontSize(9).font('Helvetica')
+      .text(data.anomaly || '', 35, 180, { width: W/2 - 10, lineBreak: true })
+      .text(data.judge || '', 30 + W/2 + 5, 180, { width: W/2 - 10, lineBreak: true });
+
+    // 系列別 & 回報人
+    doc.rect(30, 295, W, 20).stroke();
+    doc.fontSize(8).font('Helvetica')
+      .text(`系列別：${data.series || ''}   回報人：${data.reporter || ''}   日期：${data.date || ''}`, 35, 300);
+
+    // 廠商簽回
+    doc.rect(30, 315, W, 30).stroke();
+    doc.fontSize(8).font('Helvetica-Bold').text('廠商簽回', 32, 325);
+
+    doc.end();
+  });
+}
+
+// ════════════════════════════════════════
 //  LIFF 表單 API
 // ════════════════════════════════════════
 app.post('/api/anomaly', async (req, res) => {
@@ -493,6 +625,15 @@ app.post('/api/anomaly', async (req, res) => {
     });
 
     const judgeEmoji = d.judge === '驗退X' ? '❌' : d.judge === '特採△' ? '⚠️' : '🔧';
+
+    // 產生 PDF
+    const pdfUrl = await generateAndUploadPDF({
+      wgNumber, date: d.date || new Date().toISOString().split('T')[0],
+      unit: d.unit, resp: d.resp, series: d.series,
+      product: d.product, qty: d.qty, ratio: d.ratio,
+      anomaly: d.anomaly, judge: d.judge, reporter: reporterName,
+    }).catch(e => { console.error('PDF gen failed:', e.message); return null; });
+
     const msg =
       `【異常通報 ${wgNumber}】\n` +
       `👤 回報人：${reporterName}\n` +
@@ -504,7 +645,8 @@ app.post('/api/anomaly', async (req, res) => {
       `${judgeEmoji} 判定：${d.judge}\n` +
       `📅 日期：${d.date}` +
       (photoUrl  ? `\n📷 照片1：${photoUrl}`  : '') +
-      (photoUrl2 ? `\n📷 照片2：${photoUrl2}` : '');
+      (photoUrl2 ? `\n📷 照片2：${photoUrl2}` : '') +
+      (pdfUrl    ? `\n📄 異常單PDF：${pdfUrl}` : '');
 
     for (const uid of NOTIFY_USERS) {
       await pushText(uid, msg).catch(e => console.error('push failed:', e.message));
