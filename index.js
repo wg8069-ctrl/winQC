@@ -448,44 +448,94 @@ async function uploadToCloudinary(base64Data) {
 
 
 // ════════════════════════════════════════
-//  Excel 產生（填入XLS模板）+ 上傳 Cloudinary
+//  Excel 產生（從零建立）+ 上傳 Cloudinary
 // ════════════════════════════════════════
 async function generateAndUploadExcel(data) {
   try {
-    const templatePath = path.join(__dirname, 'template.xlsx');
     const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.readFile(templatePath);
+    const ws = workbook.addWorksheet('品質異常通知單');
 
-    const ws = workbook.worksheets[0];
+    ws.columns = [
+      {width:10},{width:10},{width:10},{width:8},{width:16},{width:12},
+      {width:12},{width:10},{width:10},{width:10},{width:8},{width:10},
+    ];
 
-    // 填入資料（對應 openpyxl 確認的儲存格位置）
-    ws.getCell('A4').value = data.date || '';
-    ws.getCell('B4').value = data.unit || '';
-    ws.getCell('C4').value = data.resp || '';
-    ws.getCell('D4').value = data.customer || '';
-    ws.getCell('E4').value = data.product || '';
-    ws.getCell('F4').value = data.series || '';
-    ws.getCell('G4').value = data.anomaly || '';
-    ws.getCell('H4').value = parseInt(data.qty) || null;
-    ws.getCell('J4').value = data.ratio || '';
-    ws.getCell('K4').value = data.judge || '';
-    ws.getCell('L4').value = data.reporter || '';
+    const B = {top:{style:'thin'},bottom:{style:'thin'},left:{style:'thin'},right:{style:'thin'}};
+    const gray = {type:'pattern',pattern:'solid',fgColor:{argb:'FFD9D9D9'}};
+    const mid = {horizontal:'center',vertical:'middle',wrapText:true};
 
+    const sc = (addr, val, opts={}) => {
+      const c = ws.getCell(addr);
+      c.value = val;
+      c.border = B;
+      c.alignment = opts.al || mid;
+      c.font = {bold:!!opts.bold, size:opts.sz||10};
+      if(opts.gray) c.fill = gray;
+    };
+
+    // 第1-2列：標題
+    ws.mergeCells('A1:B2'); sc('A1','偉剛科技\nWinGun',{bold:true,sz:11});
+    ws.mergeCells('C1:L2'); sc('C1','品質異常通知單  品質判定：驗退X. 特採△. 加工○',{bold:true,sz:13});
+    ws.getRow(1).height=22; ws.getRow(2).height=22;
+
+    // 第3列：欄位標題
+    ws.getRow(3).height=18;
+    ['發生日期','發生單位','責任單位','客戶','零件名稱','零件編號','異常狀況','訂單數量','異常數量','異常比例','判定','確認']
+      .forEach((h,i)=>sc(String.fromCharCode(65+i)+'3',h,{bold:true,gray:true}));
+
+    // 第4列：資料
+    ws.getRow(4).height=20;
+    sc('A4',data.date||''); sc('B4',data.unit||''); sc('C4',data.resp||'');
+    sc('D4',''); sc('E4',data.product||''); sc('F4',data.series||'');
+    sc('G4',data.anomaly||''); sc('H4',parseInt(data.qty)||null);
+    sc('I4',''); sc('J4',data.ratio||'');
+    sc('K4',data.judge||'',{bold:true}); sc('L4',data.reporter||'');
+
+    // 第5列：異常狀況/處理方式標題
+    ws.getRow(5).height=16;
+    ws.mergeCells('A5:F5'); sc('A5','異常狀況',{bold:true,gray:true});
+    ws.mergeCells('G5:L5'); sc('G5','處理方式',{bold:true,gray:true});
+
+    // 第6-10列：內容
+    ws.mergeCells('A6:F10'); ws.mergeCells('G6:L10');
+    [6,7,8,9,10].forEach(r=>ws.getRow(r).height=20);
+    const ac=ws.getCell('A6'); ac.value=data.anomaly||''; ac.border=B; ac.alignment={horizontal:'left',vertical:'top',wrapText:true};
+    const jc=ws.getCell('G6'); jc.value=data.judge||''; jc.border=B; jc.alignment={horizontal:'left',vertical:'top',wrapText:true};
+
+    // 第11列：廠商異常處理
+    ws.getRow(11).height=16;
+    ws.mergeCells('A11:C11'); sc('A11','廠商異常處理',{bold:true,gray:true});
+    ws.mergeCells('D11:L11'); sc('D11','');
+
+    // 第12-13列：廠商簽回
+    ws.mergeCells('A12:L13');
+    [12,13].forEach(r=>ws.getRow(r).height=20);
+    ws.getCell('A12').border=B;
+
+    // 底部注意
+    [
+      ['A14','1.請於通知單到後3日內完成問題回覆並回傳，否則視同確認並以我司處理方式處理；無不可抗力因素且未回傳者則當月票期加開乙個月。如2個月未改善則終止合作。'],
+      ['A15','2.若於次月無異常通知則票期可提前一個月；若連續2個月無異常則以現金票支付貨款。'],
+      ['A16','3.生產前務必比對成品與樣品無誤；如有不符樣品需告知本司進行處理；未告知而逕行交貨者由製造者負責後續發生所有費用。'],
+    ].forEach(([addr,txt],i)=>{
+      ws.mergeCells(`${addr}:L1${4+i}`);
+      const c=ws.getCell(addr); c.value=txt; c.font={size:8};
+      ws.getRow(14+i).height=12;
+    });
+
+    // 上傳 Cloudinary
     const buffer = await workbook.xlsx.writeBuffer();
     const base64 = 'data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,' + buffer.toString('base64');
-
-    const publicId = `excel_${data.wgNumber}.xlsx`;
+    const publicId = `anomaly_${data.wgNumber}.xlsx`;
     const timestamp = Math.floor(Date.now() / 1000);
     const sigStr = `public_id=${publicId}&timestamp=${timestamp}${CLOUDINARY_SECRET}`;
     const signature = crypto.createHash('sha1').update(sigStr).digest('hex');
-
     const formData = new URLSearchParams();
     formData.append('file', base64);
     formData.append('api_key', CLOUDINARY_KEY);
     formData.append('timestamp', String(timestamp));
     formData.append('signature', signature);
     formData.append('public_id', publicId);
-
     const r = await axios.post(
       `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/raw/upload`,
       formData.toString(),
@@ -550,13 +600,29 @@ app.post('/api/anomaly', async (req, res) => {
 
     const judgeEmoji = d.judge === '驗退X' ? '❌' : d.judge === '特採△' ? '⚠️' : '🔧';
 
-    // 產生 Excel
-    const excelUrl = await generateAndUploadExcel({
-      wgNumber, date: d.date || new Date().toISOString().split('T')[0],
-      unit: d.unit, resp: d.resp, series: d.series,
-      product: d.product, qty: d.qty, ratio: d.ratio,
-      anomaly: d.anomaly, judge: d.judge, reporter: reporterName,
-    }).catch(e => { console.error('Excel gen failed:', e.message); return null; });
+    // 產生 Excel buffer
+    let excelBase64 = null;
+    try {
+      const templatePath = path.join(__dirname, 'template.xlsx');
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.readFile(templatePath);
+      const ws = workbook.worksheets[0];
+      ws.getCell('A4').value = d.date || new Date().toISOString().split('T')[0];
+      ws.getCell('B4').value = d.unit || '';
+      ws.getCell('C4').value = d.resp || '';
+      ws.getCell('D4').value = '';
+      ws.getCell('E4').value = d.product || '';
+      ws.getCell('F4').value = d.series || '';
+      ws.getCell('G4').value = d.anomaly || '';
+      ws.getCell('H4').value = parseInt(d.qty) || null;
+      ws.getCell('J4').value = d.ratio || '';
+      ws.getCell('K4').value = d.judge || '';
+      ws.getCell('L4').value = reporterName;
+      const buffer = await workbook.xlsx.writeBuffer();
+      excelBase64 = buffer.toString('base64');
+    } catch(e) {
+      console.error('Excel gen failed:', e.message);
+    }
 
     const msg =
       `【異常通報 ${wgNumber}】\n` +
@@ -569,14 +635,13 @@ app.post('/api/anomaly', async (req, res) => {
       `${judgeEmoji} 判定：${d.judge}\n` +
       `📅 日期：${d.date}` +
       (photoUrl  ? `\n📷 照片1：${photoUrl}`  : '') +
-      (photoUrl2 ? `\n📷 照片2：${photoUrl2}` : '') +
-      (excelUrl  ? `\n📊 異常單：${excelUrl}` : '');
+      (photoUrl2 ? `\n📷 照片2：${photoUrl2}` : '');
 
     for (const uid of NOTIFY_USERS) {
       await pushText(uid, msg).catch(e => console.error('push failed:', e.message));
     }
 
-    res.json({ success: true, number: wgNumber, reporter: reporterName });
+    res.json({ success: true, number: wgNumber, reporter: reporterName, excelBase64 });
   } catch (err) {
     console.error(err.response?.data || err.message);
     res.status(500).json({ success: false, error: err.message });
