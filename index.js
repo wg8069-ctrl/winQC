@@ -448,22 +448,31 @@ async function uploadToCloudinary(base64Data) {
 // ════════════════════════════════════════
 //  PDF 產生（HTML → PDF）+ 上傳 Cloudinary
 // ════════════════════════════════════════
-function buildPdfHtml(data) {
+function buildPdfHtml(data, fontBase64Regular, fontBase64Bold) {
   const j = data.judge || '';
-  const isVerify  = j.includes('驗退');
-  const isSpecial = j.includes('特採');
-  const isProcess = j.includes('加工');
   const chk = (v) => v ? '☑' : '☐';
+  const fontFace = fontBase64Regular ? `
+@font-face {
+  font-family: 'NotoSansTC';
+  font-weight: 400;
+  src: url('data:font/truetype;base64,${fontBase64Regular}') format('truetype');
+}
+@font-face {
+  font-family: 'NotoSansTC';
+  font-weight: 700;
+  src: url('data:font/truetype;base64,${fontBase64Bold}') format('truetype');
+}` : '';
+  const fontFamily = fontBase64Regular ? "'NotoSansTC'" : "'Microsoft JhengHei','PingFang TC','Arial'";
   return `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="UTF-8">
-<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700&display=swap" rel="stylesheet">
 <style>
+${fontFace}
 *{box-sizing:border-box;margin:0;padding:0;}
-body{font-family:'Noto Sans TC','Microsoft JhengHei','PingFang TC',Arial,sans-serif;font-size:11px;padding:8px;width:100%;}
+body{font-family:${fontFamily},sans-serif;font-size:11px;padding:8px;width:100%;}
 table{width:100%;border-collapse:collapse;table-layout:fixed;}
-td{border:1px solid #000;padding:2px 4px;font-size:10px;vertical-align:middle;overflow:hidden;font-family:'Noto Sans TC','Microsoft JhengHei',Arial,sans-serif;}
+td{border:1px solid #000;padding:2px 4px;font-size:10px;vertical-align:middle;overflow:hidden;font-family:${fontFamily},sans-serif;}
 .nb{border:none;}
 .bold{font-weight:bold;}
 .center{text-align:center;}
@@ -578,7 +587,19 @@ td{border:1px solid #000;padding:2px 4px;font-size:10px;vertical-align:middle;ov
 
 async function generateAndUploadPDF(data) {
   try {
-    const html = buildPdfHtml(data);
+    // 讀取字型檔案（上傳到 GitHub repo 的）
+    let fontBase64Regular = null;
+    let fontBase64Bold = null;
+    try {
+      const regularPath = path.join(__dirname, 'NotoSansTC-Regular.ttf');
+      const boldPath = path.join(__dirname, 'NotoSansTC-Bold.ttf');
+      fontBase64Regular = fs.readFileSync(regularPath).toString('base64');
+      fontBase64Bold = fs.readFileSync(boldPath).toString('base64');
+    } catch(e) {
+      console.log('Font files not found, using system fonts');
+    }
+
+    const html = buildPdfHtml(data, fontBase64Regular, fontBase64Bold);
     const file = { content: html };
     const options = { format: 'A4', landscape: true, margin: { top: '8mm', bottom: '8mm', left: '8mm', right: '8mm' }, args: ['--no-sandbox', '--disable-setuid-sandbox'] };
     const pdfBuffer = await htmlPdf.generatePdf(file, options);
