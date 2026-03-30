@@ -458,11 +458,12 @@ function buildPdfHtml(data) {
 <html>
 <head>
 <meta charset="UTF-8">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0;}
-body{font-family:'Microsoft JhengHei','PingFang TC','Noto Sans CJK TC',Arial,sans-serif;font-size:11px;padding:8px;width:100%;}
+body{font-family:'Noto Sans TC','Microsoft JhengHei','PingFang TC',Arial,sans-serif;font-size:11px;padding:8px;width:100%;}
 table{width:100%;border-collapse:collapse;table-layout:fixed;}
-td{border:1px solid #000;padding:2px 4px;font-size:10px;vertical-align:middle;overflow:hidden;}
+td{border:1px solid #000;padding:2px 4px;font-size:10px;vertical-align:middle;overflow:hidden;font-family:'Noto Sans TC','Microsoft JhengHei',Arial,sans-serif;}
 .nb{border:none;}
 .bold{font-weight:bold;}
 .center{text-align:center;}
@@ -471,7 +472,7 @@ td{border:1px solid #000;padding:2px 4px;font-size:10px;vertical-align:middle;ov
 .med{font-size:13px;font-weight:bold;}
 .tall{height:180px;vertical-align:top;padding:4px;}
 .sig{height:60px;}
-.note{font-size:8px;margin-top:6px;line-height:1.6;}
+.note{font-size:8px;margin-top:6px;line-height:1.6;font-family:'Noto Sans TC','Microsoft JhengHei',Arial,sans-serif;}
 .right-panel{font-size:10px;}
 </style>
 </head>
@@ -579,7 +580,7 @@ async function generateAndUploadPDF(data) {
   try {
     const html = buildPdfHtml(data);
     const file = { content: html };
-    const options = { format: 'A4', landscape: true, margin: { top: '8mm', bottom: '8mm', left: '8mm', right: '8mm' } };
+    const options = { format: 'A4', landscape: true, margin: { top: '8mm', bottom: '8mm', left: '8mm', right: '8mm' }, args: ['--no-sandbox', '--disable-setuid-sandbox'] };
     const pdfBuffer = await htmlPdf.generatePdf(file, options);
     const base64 = 'data:application/pdf;base64,' + pdfBuffer.toString('base64');
 
