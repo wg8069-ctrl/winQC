@@ -1,8 +1,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const axios = require('axios');
-const PDFDocument = require('pdfkit');
-const { Readable } = require('stream');
+const htmlPdf = require('html-pdf-node');
 
 const app = express();
 app.use((req, res, next) => {
@@ -444,133 +443,117 @@ async function uploadToCloudinary(base64Data) {
 }
 
 // ════════════════════════════════════════
-//  PDF 產生 + 上傳 Cloudinary
+//  PDF 產生（HTML → PDF）+ 上傳 Cloudinary
 // ════════════════════════════════════════
+function buildPdfHtml(data) {
+  const judgeText = data.judge || '';
+  return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Microsoft JhengHei', 'PingFang TC', sans-serif; }
+  body { padding: 20px; font-size: 12px; }
+  .header { text-align: center; margin-bottom: 8px; }
+  .header h2 { font-size: 18px; font-weight: bold; }
+  .header p { font-size: 12px; }
+  .company { font-size: 13px; font-weight: bold; margin-bottom: 4px; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 0; }
+  td, th { border: 1px solid #333; padding: 4px 6px; font-size: 11px; vertical-align: middle; }
+  .label { background: #f0f0f0; font-weight: bold; width: 80px; }
+  .section-title { background: #f0f0f0; font-weight: bold; text-align: center; font-size: 12px; }
+  .content-area { height: 120px; vertical-align: top; }
+  .footer-row td { height: 40px; }
+  .judge-box { display: inline-block; padding: 2px 8px; border: 1px solid #333; margin: 0 4px; }
+  .judge-active { background: #333; color: #fff; }
+</style>
+</head>
+<body>
+<div class="company">WinGun 偉剛科技</div>
+<div class="header">
+  <h2>品質異常通知單</h2>
+  <p>
+    品質判定：
+    <span class="judge-box ${judgeText.includes('驗退') ? 'judge-active' : ''}">驗退 X</span>
+    <span class="judge-box ${judgeText.includes('特採') ? 'judge-active' : ''}">特採 △</span>
+    <span class="judge-box ${judgeText.includes('加工') ? 'judge-active' : ''}">加工 ○</span>
+  </p>
+</div>
+<table>
+  <tr>
+    <td class="label">單號編號</td>
+    <td colspan="3">${data.wgNumber}</td>
+    <td class="label">客戶</td>
+    <td colspan="2">${data.customer || ''}</td>
+    <td class="label">品名</td>
+    <td colspan="3">${data.product || ''}</td>
+    <td class="label">系列別</td>
+    <td>${data.series || ''}</td>
+  </tr>
+  <tr>
+    <td class="label">發生日期</td>
+    <td>${data.date}</td>
+    <td class="label">發生單位</td>
+    <td>${data.unit}</td>
+    <td class="label">責任單位</td>
+    <td>${data.resp}</td>
+    <td class="label">訂單數量</td>
+    <td>${data.qty || ''}</td>
+    <td class="label">異常比例</td>
+    <td>${data.ratio || ''}</td>
+    <td class="label">判定</td>
+    <td colspan="2">${judgeText}</td>
+  </tr>
+  <tr>
+    <td class="section-title" colspan="6">異常狀況</td>
+    <td class="section-title" colspan="7">處理方式</td>
+  </tr>
+  <tr>
+    <td class="content-area" colspan="6">${(data.anomaly || '').replace(/、/g, '\n')}</td>
+    <td class="content-area" colspan="7">${data.judge || ''}</td>
+  </tr>
+  <tr>
+    <td class="label">回報人</td>
+    <td colspan="12">${data.reporter || ''}</td>
+  </tr>
+  <tr class="footer-row">
+    <td class="label">廠商簽回</td>
+    <td colspan="12"></td>
+  </tr>
+</table>
+</body>
+</html>`;
+}
+
 async function generateAndUploadPDF(data) {
-  return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ size: 'A4', margin: 30 });
-    const chunks = [];
-    doc.on('data', chunk => chunks.push(chunk));
-    doc.on('end', async () => {
-      try {
-        const pdfBuffer = Buffer.concat(chunks);
-        const base64 = 'data:application/pdf;base64,' + pdfBuffer.toString('base64');
+  try {
+    const html = buildPdfHtml(data);
+    const file = { content: html };
+    const options = { format: 'A4', margin: { top: '15mm', bottom: '15mm', left: '15mm', right: '15mm' } };
+    const pdfBuffer = await htmlPdf.generatePdf(file, options);
+    const base64 = 'data:application/pdf;base64,' + pdfBuffer.toString('base64');
 
-        // 上傳到 Cloudinary
-        const timestamp = Math.floor(Date.now() / 1000);
-        const sigStr = `timestamp=${timestamp}${CLOUDINARY_SECRET}`;
-        const signature = crypto.createHash('sha1').update(sigStr).digest('hex');
-        const formData = new URLSearchParams();
-        formData.append('file', base64);
-        formData.append('timestamp', timestamp);
-        formData.append('api_key', CLOUDINARY_KEY);
-        formData.append('signature', signature);
-        formData.append('resource_type', 'raw');
-        formData.append('public_id', `anomaly_${data.wgNumber}`);
+    const timestamp = Math.floor(Date.now() / 1000);
+    const publicId = `anomaly_${data.wgNumber}`;
+    const sigStr = `public_id=${publicId}&timestamp=${timestamp}${CLOUDINARY_SECRET}`;
+    const signature = crypto.createHash('sha1').update(sigStr).digest('hex');
+    const formData = new URLSearchParams();
+    formData.append('file', base64);
+    formData.append('timestamp', String(timestamp));
+    formData.append('api_key', CLOUDINARY_KEY);
+    formData.append('signature', signature);
+    formData.append('public_id', publicId);
 
-        const r = await axios.post(
-          `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/raw/upload`,
-          formData.toString(),
-          { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, maxContentLength: Infinity, maxBodyLength: Infinity }
-        );
-        resolve(r.data.secure_url);
-      } catch(e) {
-        console.error('PDF upload failed:', e.message);
-        resolve(null);
-      }
-    });
-    doc.on('error', reject);
-
-    // ── PDF 內容 ──
-    const W = 535;
-    const judgeText = data.judge === '驗退X' ? '驗退X' : data.judge === '特採△' ? '特採△' : '加工○';
-
-    // 標題
-    doc.fontSize(16).font('Helvetica-Bold')
-      .text('品質異常通知單', 0, 35, { align: 'center', width: 595 });
-    doc.fontSize(11).font('Helvetica')
-      .text(`品質判定：驗退X  特採△  加工○`, 0, 55, { align: 'center', width: 595 });
-
-    // 公司名稱
-    doc.fontSize(12).font('Helvetica-Bold').text('WinGun 偉剛科技', 30, 35);
-
-    // 外框
-    doc.rect(30, 75, W, 30).stroke();
-    doc.rect(30, 75, 100, 30).stroke();
-    doc.rect(130, 75, W - 100, 30).stroke();
-
-    // 單號列
-    doc.fontSize(9).font('Helvetica-Bold').text('單據編號', 32, 82);
-    doc.font('Helvetica').text(data.wgNumber, 135, 82);
-
-    // 第二列：發生日期、發生單位、責任單位、品名、訂單數量等
-    doc.rect(30, 105, W, 25).stroke();
-    const cols = [60, 60, 60, 30];
-    const labels = ['發生日期', '發生單位', '責任單位', '客戶'];
-    let x = 30;
-    cols.forEach((w, i) => {
-      doc.rect(x, 105, w, 25).stroke();
-      doc.fontSize(8).font('Helvetica-Bold').text(labels[i], x+2, 111, { width: w-4 });
-      x += w;
-    });
-    // 品名欄
-    doc.rect(x, 105, 160, 25).stroke();
-    doc.fontSize(8).font('Helvetica-Bold').text('品名', x+2, 111);
-    x += 160;
-    // 其他欄
-    const rightCols = [['訂單數量', 50], ['異常數量', 50], ['異常比例', 50], ['判定', 40]];
-    rightCols.forEach(([label, w]) => {
-      doc.rect(x, 105, w, 25).stroke();
-      doc.fontSize(7).font('Helvetica-Bold').text(label, x+2, 108, { width: w-4 });
-      x += w;
-    });
-
-    // 填入數值列
-    doc.rect(30, 130, W, 25).stroke();
-    x = 30;
-    const vals = [data.date, data.unit, data.resp, ''];
-    cols.forEach((w, i) => {
-      doc.rect(x, 130, w, 25).stroke();
-      doc.fontSize(8).font('Helvetica').text(vals[i] || '', x+2, 136, { width: w-4 });
-      x += w;
-    });
-    // 品名值
-    doc.rect(x, 130, 160, 25).stroke();
-    doc.fontSize(8).font('Helvetica').text(data.product || '', x+2, 136, { width: 156 });
-    x += 160;
-    // 數值
-    const rightVals = [data.qty || '', '', data.ratio || '', judgeText];
-    rightCols.forEach(([, w], i) => {
-      doc.rect(x, 130, w, 25).stroke();
-      doc.fontSize(8).font('Helvetica').text(rightVals[i] || '', x+2, 136, { width: w-4 });
-      x += w;
-    });
-
-    // 異常狀況 / 處理方式
-    doc.rect(30, 155, W/2, 20).stroke();
-    doc.rect(30 + W/2, 155, W/2, 20).stroke();
-    doc.fontSize(9).font('Helvetica-Bold')
-      .text('異常狀況', 32, 160)
-      .text('處理方式', 30 + W/2 + 2, 160);
-
-    // 異常狀況內容
-    doc.rect(30, 175, W/2, 120).stroke();
-    doc.rect(30 + W/2, 175, W/2, 120).stroke();
-    doc.fontSize(9).font('Helvetica')
-      .text(data.anomaly || '', 35, 180, { width: W/2 - 10, lineBreak: true })
-      .text(data.judge || '', 30 + W/2 + 5, 180, { width: W/2 - 10, lineBreak: true });
-
-    // 系列別 & 回報人
-    doc.rect(30, 295, W, 20).stroke();
-    doc.fontSize(8).font('Helvetica')
-      .text(`系列別：${data.series || ''}   回報人：${data.reporter || ''}   日期：${data.date || ''}`, 35, 300);
-
-    // 廠商簽回
-    doc.rect(30, 315, W, 30).stroke();
-    doc.fontSize(8).font('Helvetica-Bold').text('廠商簽回', 32, 325);
-
-    doc.end();
-  });
+    const r = await axios.post(
+      `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/raw/upload`,
+      formData.toString(),
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, maxContentLength: Infinity, maxBodyLength: Infinity }
+    );
+    return r.data.secure_url;
+  } catch(e) {
+    console.error('PDF gen/upload failed:', e.message);
+    return null;
+  }
 }
 
 // ════════════════════════════════════════
