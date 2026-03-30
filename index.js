@@ -446,81 +446,128 @@ async function uploadToCloudinary(base64Data) {
 //  PDF 產生（HTML → PDF）+ 上傳 Cloudinary
 // ════════════════════════════════════════
 function buildPdfHtml(data) {
-  const judgeText = data.judge || '';
+  const j = data.judge || '';
+  const isVerify  = j.includes('驗退');
+  const isSpecial = j.includes('特採');
+  const isProcess = j.includes('加工');
+  const chk = (v) => v ? '☑' : '☐';
   return `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="UTF-8">
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Microsoft JhengHei', 'PingFang TC', sans-serif; }
-  body { padding: 20px; font-size: 12px; }
-  .header { text-align: center; margin-bottom: 8px; }
-  .header h2 { font-size: 18px; font-weight: bold; }
-  .header p { font-size: 12px; }
-  .company { font-size: 13px; font-weight: bold; margin-bottom: 4px; }
-  table { width: 100%; border-collapse: collapse; margin-bottom: 0; }
-  td, th { border: 1px solid #333; padding: 4px 6px; font-size: 11px; vertical-align: middle; }
-  .label { background: #f0f0f0; font-weight: bold; width: 80px; }
-  .section-title { background: #f0f0f0; font-weight: bold; text-align: center; font-size: 12px; }
-  .content-area { height: 120px; vertical-align: top; }
-  .footer-row td { height: 40px; }
-  .judge-box { display: inline-block; padding: 2px 8px; border: 1px solid #333; margin: 0 4px; }
-  .judge-active { background: #333; color: #fff; }
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Microsoft JhengHei','PingFang TC','Noto Sans CJK TC',Arial,sans-serif;font-size:11px;padding:8px;width:100%;}
+table{width:100%;border-collapse:collapse;table-layout:fixed;}
+td{border:1px solid #000;padding:2px 4px;font-size:10px;vertical-align:middle;overflow:hidden;}
+.nb{border:none;}
+.bold{font-weight:bold;}
+.center{text-align:center;}
+.bg{background:#e0e0e0;}
+.big{font-size:16px;font-weight:bold;}
+.med{font-size:13px;font-weight:bold;}
+.tall{height:180px;vertical-align:top;padding:4px;}
+.sig{height:60px;}
+.note{font-size:8px;margin-top:6px;line-height:1.6;}
+.right-panel{font-size:10px;}
 </style>
 </head>
 <body>
-<div class="company">WinGun 偉剛科技</div>
-<div class="header">
-  <h2>品質異常通知單</h2>
-  <p>
-    品質判定：
-    <span class="judge-box ${judgeText.includes('驗退') ? 'judge-active' : ''}">驗退 X</span>
-    <span class="judge-box ${judgeText.includes('特採') ? 'judge-active' : ''}">特採 △</span>
-    <span class="judge-box ${judgeText.includes('加工') ? 'judge-active' : ''}">加工 ○</span>
-  </p>
-</div>
 <table>
+  <!-- 標題列 -->
   <tr>
-    <td class="label">單號編號</td>
-    <td colspan="3">${data.wgNumber}</td>
-    <td class="label">客戶</td>
-    <td colspan="2">${data.customer || ''}</td>
-    <td class="label">品名</td>
-    <td colspan="3">${data.product || ''}</td>
-    <td class="label">系列別</td>
-    <td>${data.series || ''}</td>
+    <td colspan="2" rowspan="2" class="nb" style="width:90px;font-size:13px;font-weight:bold;border:2px solid #000;text-align:center;">
+      偉剛科技<br>WinGun
+    </td>
+    <td colspan="8" rowspan="2" class="big center" style="border:2px solid #000;">
+      品質異常通知單&nbsp;&nbsp;&nbsp;品質判定：驗退X. 特採△. 加工○
+    </td>
+    <td colspan="3" class="center bold bg" style="font-size:10px;">外發加工</td>
+    <td colspan="2" class="center"></td>
+    <td colspan="2" class="center bold bg">試組</td>
+    <td colspan="2" class="center bold bg">線前加工</td>
+    <td colspan="2" class="center bold bg">上線中</td>
   </tr>
   <tr>
-    <td class="label">發生日期</td>
-    <td>${data.date}</td>
-    <td class="label">發生單位</td>
-    <td>${data.unit}</td>
-    <td class="label">責任單位</td>
-    <td>${data.resp}</td>
-    <td class="label">訂單數量</td>
-    <td>${data.qty || ''}</td>
-    <td class="label">異常比例</td>
-    <td>${data.ratio || ''}</td>
-    <td class="label">判定</td>
-    <td colspan="2">${judgeText}</td>
+    <td colspan="2" class="center bold bg">特採</td>
+    <td colspan="2" class="center bold bg">退料</td>
+    <td colspan="5" class="center bold bg">預計回廠時間</td>
+    <td colspan="2" class="center"></td>
   </tr>
+  <!-- 欄位標題列 -->
+  <tr style="height:28px;">
+    <td class="center bg bold" style="width:55px;">發生日期</td>
+    <td class="center bg bold" style="width:55px;">發生單位</td>
+    <td class="center bg bold" style="width:55px;">責任單位</td>
+    <td class="center bg bold" style="width:45px;">客戶</td>
+    <td class="center bg bold" style="width:80px;">零件名稱</td>
+    <td class="center bg bold" style="width:60px;">零件編號</td>
+    <td class="center bg bold" style="width:60px;">異常狀況</td>
+    <td class="center bg bold" style="width:50px;">訂單數量</td>
+    <td class="center bg bold" style="width:50px;">異常數量</td>
+    <td class="center bg bold" style="width:50px;">異常比例</td>
+    <td class="center bg bold" style="width:40px;">判定</td>
+    <td class="center bg bold" style="width:40px;">確認</td>
+    <td colspan="3" class="center bold bg" style="font-size:10px;">上線日期</td>
+    <td colspan="4" class="center bold bg" style="font-size:10px;">出貨日/待驗日</td>
+    <td colspan="3" class="center bold bg right-panel">
+      產線處理 &nbsp; 來廠處理 &nbsp; 外廠處理
+    </td>
+  </tr>
+  <!-- 資料列 -->
+  <tr style="height:30px;">
+    <td class="center">${data.date || ''}</td>
+    <td class="center">${data.unit || ''}</td>
+    <td class="center">${data.resp || ''}</td>
+    <td class="center">${data.customer || ''}</td>
+    <td class="center">${data.product || ''}</td>
+    <td class="center">${data.series || ''}</td>
+    <td class="center">${data.anomaly || ''}</td>
+    <td class="center">${data.qty || ''}</td>
+    <td class="center"></td>
+    <td class="center">${data.ratio || ''}</td>
+    <td class="center bold">${j}</td>
+    <td class="center">${data.reporter || ''}</td>
+    <td colspan="3" class="center"></td>
+    <td colspan="4" class="center"></td>
+    <td colspan="3" class="right-panel center">
+      ${chk(false)} 產線 &nbsp; ${chk(false)} 來廠 &nbsp; ${chk(false)} 外廠
+    </td>
+  </tr>
+  <!-- 異常狀況 / 處理方式 標題 -->
   <tr>
-    <td class="section-title" colspan="6">異常狀況</td>
-    <td class="section-title" colspan="7">處理方式</td>
+    <td colspan="6" class="center bold bg">異常狀況</td>
+    <td colspan="6" class="center bold bg">處理方式</td>
+    <td colspan="9" class="right-panel" style="font-size:9px;">
+      補料狀況：${chk(false)} 廠商補 &nbsp; ${chk(false)} 庫出 &nbsp; 補料時間：____<br>
+      ${chk(false)} 停線 &nbsp; ${chk(false)} 無法一次完線 &nbsp; ${chk(false)} 再上線<br>
+      庫存數量：____ &nbsp; 庫存處理：${chk(false)} 加工 &nbsp; ${chk(false)} 報廢
+    </td>
   </tr>
+  <!-- 異常狀況 / 處理方式 內容 -->
   <tr>
-    <td class="content-area" colspan="6">${(data.anomaly || '').replace(/、/g, '\n')}</td>
-    <td class="content-area" colspan="7">${data.judge || ''}</td>
+    <td colspan="6" class="tall">${(data.anomaly || '').replace(/、/g,'<br>')}</td>
+    <td colspan="6" class="tall">${j}</td>
+    <td colspan="9" class="tall" style="font-size:9px;vertical-align:top;">
+      <strong>${data.resp || ''}</strong>
+    </td>
   </tr>
+  <!-- 廠商異常處理 -->
   <tr>
-    <td class="label">回報人</td>
-    <td colspan="12">${data.reporter || ''}</td>
+    <td colspan="3" class="bold bg">廠商異常處理</td>
+    <td colspan="9"></td>
+    <td colspan="9" class="center bold bg">廠商簽回</td>
   </tr>
-  <tr class="footer-row">
-    <td class="label">廠商簽回</td>
+  <tr class="sig">
     <td colspan="12"></td>
+    <td colspan="9" class="center bold bg">簽核</td>
   </tr>
 </table>
+<div class="note">
+  1.請於通知單到後3日內完成問題回覆並回傳，否則視同確認並以我司處理方式處理；無不可抗力因素且未回傳者則當月票期加開乙個月。如2個月未改善則終止合作。<br>
+  2.若於次月無異常通知則票期可提前一個月；若連續2個月無異常則以現金票支付貨款。<br>
+  3.生產前務必比對成品與樣品無誤；如有不符樣品需告知本司進行處理；未告知而逕行交貨者由製造者負責後續發生所有費用。
+</div>
 </body>
 </html>`;
 }
@@ -533,16 +580,10 @@ async function generateAndUploadPDF(data) {
     const pdfBuffer = await htmlPdf.generatePdf(file, options);
     const base64 = 'data:application/pdf;base64,' + pdfBuffer.toString('base64');
 
-    const timestamp = Math.floor(Date.now() / 1000);
-    const publicId = `anomaly_${data.wgNumber}`;
-    const sigStr = `public_id=${publicId}&timestamp=${timestamp}${CLOUDINARY_SECRET}`;
-    const signature = crypto.createHash('sha1').update(sigStr).digest('hex');
     const formData = new URLSearchParams();
     formData.append('file', base64);
-    formData.append('timestamp', String(timestamp));
     formData.append('api_key', CLOUDINARY_KEY);
-    formData.append('signature', signature);
-    formData.append('public_id', publicId);
+    formData.append('upload_preset', 'ml_default');
 
     const r = await axios.post(
       `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/raw/upload`,
