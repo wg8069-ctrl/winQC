@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: winqc
+    env: node
+    buildCommand: apt-get install -y fonts-noto-cjk && yarn install
+    startCommand: node index.js
