@@ -305,7 +305,8 @@ async function fetchTemplateBuffer() {
 
 async function sendExcelViaLine(buffer, filename, toUserId) {
   const timestamp = Math.floor(Date.now()/1000);
-  const signature = crypto.createHash('sha1').update(`timestamp=${timestamp}${CLOUDINARY_SECRET}`).digest('hex');
+  const sigStr    = `resource_type=raw&timestamp=${timestamp}${CLOUDINARY_SECRET}`;
+  const signature = crypto.createHash('sha1').update(sigStr).digest('hex');
   const form = new FormData();
   form.append('file', buffer, { filename, contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   form.append('timestamp', timestamp);
