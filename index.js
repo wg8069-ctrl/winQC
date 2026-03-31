@@ -344,16 +344,16 @@ app.post('/api/anomaly', async (req, res) => {
       '客戶':         { rich_text: toText(d.customer || '') },
       '系列別':       { rich_text: toText(d.series || '') },
       '零件名稱':     { rich_text: toText(d.product || '') },
-      '異常狀況':     { select: { name: d.anomaly || '外觀不良' } },
-      '處理方式':     { select: { name: d.judge || '特採△' } },
-      '判定':         { select: { name: d.judge || '特採△' } },
+      '異常狀況':     { rich_text: toText(d.anomaly || '') },
+      '處理方式':     { rich_text: toText(d.judge || '') },
+      '判定':         { rich_text: toText(d.judge || '') },
       '訂單數量':     { number: parseInt(d.qty) || null },
       '異常比例':     { rich_text: toText(d.ratio || '') },
-      '目前處理狀態': { select: { name: '未開始' } },
+      '目前處理狀態': { rich_text: toText('未開始') },
       '回報人':       { rich_text: toText(reporterName) },
     };
-    if (photoUrl) properties['異常照片'] = { files: [{ name: 'photo', type: 'external', external: { url: photoUrl } }] };
-    if (d.photo2Url) properties['異常照片2'] = { files: [{ name: 'photo2', type: 'external', external: { url: d.photo2Url } }] };
+    if (photoUrl) properties['異常照片'] = { url: photoUrl };
+    if (d.photo2Url) properties['異常照片2'] = { url: d.photo2Url };
     const pageBody = { parent: { database_id: NOTION_DATABASE_ID }, properties };
     if (photoUrl) pageBody.children = [{ object: 'block', type: 'image', image: { type: 'external', external: { url: photoUrl } } }];
     await axios.post('https://api.notion.com/v1/pages', pageBody, { headers: { Authorization: `Bearer ${NOTION_TOKEN}`, 'Notion-Version': '2022-06-28', 'Content-Type': 'application/json' } });
