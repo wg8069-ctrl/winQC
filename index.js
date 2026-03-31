@@ -1,10 +1,10 @@
-// v3
+// v4 - final
 const express = require('express');
 const crypto  = require('crypto');
 const axios   = require('axios');
 const ExcelJS = require('exceljs');
-const https   = require('https');
-const http    = require('http');
+const path    = require('path');
+const fs      = require('fs');
 const FormData = require('form-data');
 
 const app = express();
@@ -18,23 +18,20 @@ app.use((req, res, next) => {
 app.use(express.json({ limit: '10mb', verify: (req, res, buf) => { req.rawBody = buf; } }));
 
 // ── 環境變數 ──
-const LINE_CHANNEL_SECRET      = process.env.LINE_CHANNEL_SECRET;
+const LINE_CHANNEL_SECRET       = process.env.LINE_CHANNEL_SECRET;
 const LINE_CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
-const NOTION_TOKEN             = process.env.NOTION_TOKEN;
-const NOTION_DATABASE_ID       = process.env.NOTION_DATABASE_ID;
-const NOTIFY_USERS             = (process.env.NOTIFY_USERS || '').split(',').filter(Boolean);
-const GDRIVE_TEMPLATE_ID       = process.env.GDRIVE_TEMPLATE_ID;
-
-const CLOUDINARY_CLOUD  = 'dlpxz4qlh';
-const CLOUDINARY_KEY    = '953226455671951';
-const CLOUDINARY_SECRET = process.env.CLOUDINARY_SECRET || 'Bx_qzmiTmGPtSoEPXYpJwvqLQoA';
+const NOTION_TOKEN              = process.env.NOTION_TOKEN;
+const NOTION_DATABASE_ID        = process.env.NOTION_DATABASE_ID;
+const NOTIFY_USERS              = (process.env.NOTIFY_USERS || '').split(',').filter(Boolean);
+const CLOUDINARY_CLOUD          = 'dlpxz4qlh';
+const CLOUDINARY_KEY            = '953226455671951';
+const CLOUDINARY_SECRET         = process.env.CLOUDINARY_SECRET || 'Bx_qzmiTmGPtSoEPXYpJwvqLQoA';
 
 const sessions = {};
 
 // ════════════════════════════════════════
 //  Helper 函式
 // ════════════════════════════════════════
-
 function verifySignature(req) {
   const sig  = req.headers['x-line-signature'];
   const hash = crypto.createHmac('sha256', LINE_CHANNEL_SECRET).update(req.rawBody).digest('base64');
@@ -74,182 +71,156 @@ async function pushText(userId, text) {
   );
 }
 
-async function createNotionPage(data, senderName) {
-  const toText   = (v) => [{ text: { content: v ? String(v) : '' } }];
-  const statusName = data.caseNumber ? '處理中' : '未開始';
-  const caseNum  = data.caseNumber ? parseInt(data.caseNumber.replace(/[^0-9]/g, '')) || null : null;
-  const properties = {
-    '發生地':                   { title: [{ text: { content: data.location || '(未填)' } }] },
-    '產品編號':                 { rich_text: toText(data.productId) },
-    '品名':                     { rich_text: toText(data.itemName) },
-    '異常狀況':                 { rich_text: toText(data.issue) },
-    '異常廠商':                 { rich_text: toText(data.vendor) },
-    '客戶':                     { rich_text: toText(data.customer) },
-    '處理方式':                 { rich_text: toText(data.solution) },
-    '數量':                     data.quantity ? { number: parseInt(data.quantity) } : { number: null },
-    '發生日期':                 { date: { start: new Date().toISOString().split('T')[0] } },
-    '已開立異常單(請輸入單號)': caseNum ? { number: caseNum } : { number: null },
-    '免開異常(請輸入原因)':     { rich_text: toText(data.skipReason) },
-    '目前處理狀態':             { rich_text: toText(statusName) },
-    '回報人':                   { rich_text: toText(senderName) },
-  };
-  const pageBody = { parent: { database_id: NOTION_DATABASE_ID }, properties };
-  if (data.photoUrl) {
-    pageBody.children = [{ object: 'block', type: 'image', image: { type: 'external', external: { url: data.photoUrl } } }];
-  }
-  const res = await axios.post('https://api.notion.com/v1/pages', pageBody, {
-    headers: { Authorization: `Bearer ${NOTION_TOKEN}`, 'Notion-Version': '2022-06-28', 'Content-Type': 'application/json' }
-  });
-  return res.data;
+async function pushMessage(userId, messages) {
+  await axios.post('https://api.line.me/v2/bot/message/push',
+    { to: userId, messages },
+    { headers: { Authorization: `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}`, 'Content-Type': 'application/json' } }
+  );
 }
 
-async function searchNotion(keyword) {
-  const filters = ['產品編號','品名','異常狀況','異常廠商','免開異常(請輸入原因)'].map(field => ({
-    property: field, rich_text: { contains: keyword }
-  }));
-  if (!isNaN(keyword)) {
-    filters.push({ property: '已開立異常單(請輸入單號)', number: { equals: parseInt(keyword) } });
-  }
-  const res = await axios.post(
-    `https://api.notion.com/v1/databases/${NOTION_DATABASE_ID}/query`,
-    { filter: { or: filters }, sorts: [{ property: '發生日期', direction: 'descending' }] },
-    { headers: { Authorization: `Bearer ${NOTION_TOKEN}`, 'Notion-Version': '2022-06-28', 'Content-Type': 'application/json' } }
+async function replyFlex(replyToken) {
+  await axios.post('https://api.line.me/v2/bot/message/reply',
+    {
+      replyToken,
+      messages: [{
+        type: 'text',
+        text: 'WinGun 異常通報 👇',
+        quickReply: {
+          items: [
+            { type: 'action', action: { type: 'uri', label: '📋 建立異常單', uri: 'https://liff.line.me/2009600334-UpN6esDu' } },
+            { type: 'action', action: { type: 'message', label: '🔍 查詢紀錄', text: '查詢' } }
+          ]
+        }
+      }]
+    },
+    { headers: { Authorization: `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}`, 'Content-Type': 'application/json' } }
   );
-  return res.data.results.map(p => {
-    const props   = p.properties;
-    const getText = (k) => props[k]?.rich_text?.[0]?.text?.content || '';
-    const getNum  = (k) => props[k]?.number ?? '';
-    const getDate = (k) => props[k]?.date?.start?.slice(0,10) || '';
-    return {
-      date:       getDate('發生日期'),
-      productId:  getText('產品編號'),
-      issue:      getText('異常狀況'),
-      quantity:   getNum('數量'),
-      status:     getText('目前處理狀態'),
-      caseNumber: getNum('已開立異常單(請輸入單號)'),
-    };
-  });
 }
 
 // ════════════════════════════════════════
 //  Bot 對話邏輯
 // ════════════════════════════════════════
-
-const MAIN_MENU =
-  '📋 WinGun 異常回報系統\n\n請選擇功能：\n\n1️⃣  回報異常\n2️⃣  查詢紀錄\n0️⃣  顯示此選單\n\n（直接輸入數字選擇）';
-
-const BASE_STEPS = [
-  { key: 'location',   required: true,  ask: '📍 請輸入發生地點\n（例如：本廠／二廠／廠商地）' },
-  { key: 'productId',  required: true,  ask: '📦 請輸入產品編號\n（例如：WCB4-215B-CR）\n隨時輸入「0」回主選單' },
-  { key: 'itemName',   required: true,  ask: '🏷️ 請輸入品名（物料名稱）\n（例如：O環／滑套）' },
-  { key: 'issue',      required: true,  ask: '⚠️ 請描述異常狀況' },
-  { key: 'photo',      required: false, ask: '📸 請上傳異常照片\n（可直接拍照傳送，或輸入「無」跳過）', isPhoto: true },
-  { key: 'quantity',   required: true,  ask: '🔢 請輸入異常數量\n（只要輸入數字不用單位，例如：150）', validate: (v) => isNaN(v) ? '請輸入純數字！' : null },
-  { key: 'solution',   required: true,  ask: '🔧 請輸入目前處理方式' },
-  { key: 'vendor',     required: true,  ask: '🏭 請輸入異常廠商名稱' },
-  { key: 'customer',   required: false, ask: '👥 請輸入客戶名稱\n（不知道可輸入「無」跳過）' },
-  { key: 'caseNumber', required: false, ask: '📝 已開立異常單號？\n（有開立請輸入單號數字）\n（沒有請輸入「無」，之後需填免開原因）\n⚠️ 有填單號→狀態自動設為「處理中」' },
-];
-
-const SKIP_REASON_STEP = { key: 'skipReason', required: true, ask: '🚫 請輸入為何免開異常原因' };
-
-function buildSummary(d) {
-  const status = d.caseNumber ? '處理中' : '未開始';
-  return (
-    `📋 請確認以下資料：\n\n` +
-    `📍 發生地：${d.location}\n` +
-    `📦 產品編號：${d.productId}\n` +
-    `🏷️ 品名：${d.itemName}\n` +
-    `⚠️ 異常狀況：${d.issue}\n` +
-    `🔢 數量：${d.quantity}\n` +
-    `🔧 處理方式：${d.solution}\n` +
-    `🏭 異常廠商：${d.vendor}\n` +
-    (d.customer   ? `👥 客戶：${d.customer}\n`       : '') +
-    (d.caseNumber ? `📝 異常單號：${d.caseNumber}\n` : '') +
-    (d.skipReason ? `🚫 免開原因：${d.skipReason}\n` : '') +
-    `\n🔘 處理狀態：${status}\n\n` +
-    `輸入「確認」送出\n輸入「重填」重新開始\n輸入「0」回主選單`
-  );
-}
-
 async function handleMessage(event) {
   const userId     = event.source?.userId;
   const replyToken = event.replyToken;
   const text       = event.message?.type === 'text' ? event.message.text.trim() : null;
   const imageId    = event.message?.type === 'image' ? event.message.id : null;
   if (!userId) return;
+
   let session = sessions[userId] || { step: 'idle', data: {} };
+
   if (text === '0' || text === '選單' || text === 'menu') {
-    delete sessions[userId]; await replyText(replyToken, MAIN_MENU); return;
+    delete sessions[userId]; await replyFlex(replyToken); return;
   }
-  if (text === '重填' || text === '取消' || text === '2') {
-    delete sessions[userId]; await replyText(replyToken, '已取消，重新開始。\n\n' + MAIN_MENU); return;
+  if (text === '重填' || text === '取消') {
+    delete sessions[userId]; await replyFlex(replyToken); return;
   }
+
   if (session.step === 'idle') {
-    if (text === '1' || text === '回報異常') {
-      sessions[userId] = { step: 0, data: {} };
-      await replyText(replyToken, '📋 開始填寫異常回報！\n隨時輸入「0」回主選單\n\n' + BASE_STEPS[0].ask);
-    } else if (text === '2' || text === '查詢紀錄' || text === '查詢') {
-      sessions[userId] = { step: 'searching', data: {} };
-      await replyText(replyToken, '🔍 請輸入查詢關鍵字\n\n可查詢：產品編號、品名、異常狀況、異常廠商、異常單號\n\n輸入「0」回主選單');
-    } else { await replyText(replyToken, MAIN_MENU); }
+    if (text === '查詢' || text === '查詢紀錄') {
+      sessions[userId] = { step: 'search_pick', data: {} };
+      await axios.post('https://api.line.me/v2/bot/message/reply',
+        {
+          replyToken,
+          messages: [{
+            type: 'text',
+            text: '🔍 請選擇查詢方式：',
+            quickReply: {
+              items: [
+                { type: 'action', action: { type: 'message', label: '🔩 零件名稱', text: 'search:零件名稱' } },
+                { type: 'action', action: { type: 'message', label: '📋 異常單號', text: 'search:異常單號' } },
+                { type: 'action', action: { type: 'message', label: '🏭 發生單位', text: 'search:發生單位' } },
+                { type: 'action', action: { type: 'message', label: '👤 回報人',   text: 'search:回報人'   } },
+                { type: 'action', action: { type: 'message', label: '⚠️ 異常狀況', text: 'search:異常狀況' } },
+              ]
+            }
+          }]
+        },
+        { headers: { Authorization: `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}`, 'Content-Type': 'application/json' } }
+      );
+    } else {
+      await replyFlex(replyToken);
+    }
     return;
   }
-  if (session.step === 'searching') {
-    if (!text) { await replyText(replyToken, '請輸入查詢關鍵字'); return; }
+
+  if (session.step === 'search_pick') {
+    if (text && text.startsWith('search:')) {
+      const field = text.replace('search:', '');
+      sessions[userId] = { step: 'search_keyword', data: { field } };
+      const fieldLabels = {
+        '零件名稱': '零件名稱（例如：WC4-795B）',
+        '異常單號': '異常單號（例如：WG20260326）',
+        '發生單位': '發生單位（例如：本廠）',
+        '回報人':   '回報人姓名',
+        '異常狀況': '異常狀況關鍵字',
+      };
+      await replyText(replyToken, `🔍 查詢 ${field}\n\n請輸入${fieldLabels[field] || '關鍵字'}：\n\n輸入「0」回主選單`);
+    } else {
+      await replyText(replyToken, '請點選上方按鈕選擇查詢方式\n\n輸入「0」回主選單');
+    }
+    return;
+  }
+
+  if (session.step === 'search_keyword') {
+    if (!text) { await replyText(replyToken, '請輸入關鍵字'); return; }
+    const field = session.data.field;
     try {
-      const results = await searchNotion(text);
+      const filter = field === '異常單號'
+        ? { property: '異常單號', title: { contains: text } }
+        : { property: field, rich_text: { contains: text } };
+      const res = await axios.post(
+        `https://api.notion.com/v1/databases/${NOTION_DATABASE_ID}/query`,
+        { filter, sorts: [{ property: '發生日期', direction: 'descending' }], page_size: 5 },
+        { headers: { Authorization: `Bearer ${NOTION_TOKEN}`, 'Notion-Version': '2022-06-28', 'Content-Type': 'application/json' } }
+      );
+      const results = res.data.results.map(p => {
+        const props   = p.properties;
+        const getText = (k) => props[k]?.rich_text?.[0]?.text?.content || props[k]?.title?.[0]?.text?.content || '';
+        const getDate = (k) => props[k]?.date?.start?.slice(0,10) || '';
+        const getUrl  = (k) => props[k]?.url || '';
+        return {
+          num:      getText('異常單號'),
+          date:     getDate('發生日期'),
+          unit:     getText('發生單位'),
+          part:     getText('零件名稱'),
+          series:   getText('系列別'),
+          issue:    getText('異常狀況'),
+          ratio:    getText('異常比例'),
+          judge:    getText('判定'),
+          status:   getText('目前處理狀態'),
+          reporter: getText('回報人'),
+          photo:    getUrl('異常照片'),
+        };
+      });
       if (results.length === 0) {
         await replyText(replyToken, `🔍 查無「${text}」相關紀錄\n\n輸入「0」回主選單`);
       } else {
-        const lines = [`🔍 找到 ${results.length} 筆「${text}」相關紀錄：\n`];
-        results.slice(0, 5).forEach((r, i) => {
-          lines.push(`${i+1}. ${r.date} ${r.productId}\n   📋 ${r.issue}\n   🔢 ${r.quantity} pcs｜🔘 ${r.status}` + (r.caseNumber ? `\n   📝 單號：${r.caseNumber}` : ''));
+        const lines = [`🔍 找到 ${res.data.results.length} 筆「${text}」紀錄：\n`];
+        results.forEach((r, i) => {
+          const judgeEmoji = r.judge.includes('驗退') ? '❌' : r.judge.includes('特採') ? '⚠️' : r.judge.includes('加工') ? '🔧' : '🔘';
+          lines.push(
+            `${i+1}. ${r.num} ${r.date}\n` +
+            `   🏭 ${r.unit}　👤 ${r.reporter}\n` +
+            `   🔩 ${r.part}　📂 ${r.series}\n` +
+            `   ⚠️ ${r.issue}\n` +
+            `   📊 ${r.ratio}　${judgeEmoji} ${r.judge}` +
+            (r.photo ? `\n   📷 ${r.photo}` : '')
+          );
         });
-        if (results.length > 5) lines.push(`\n...共 ${results.length} 筆，僅顯示前 5 筆`);
+        if (res.data.has_more) lines.push(`\n...僅顯示前 5 筆`);
         lines.push('\n輸入「0」回主選單');
         await replyText(replyToken, lines.join('\n'));
       }
-    } catch (err) { console.error(err.response?.data || err.message); await replyText(replyToken, '❌ 查詢失敗，請通知管理員'); }
-    delete sessions[userId]; return;
-  }
-  if (typeof session.step === 'number') {
-    const cur = BASE_STEPS[session.step];
-    if (cur.isPhoto) {
-      if (imageId) { session.data.photoUrl = await getImageUrl(imageId); }
-      else if (text === '無' || text === '略過') { session.data.photoUrl = null; }
-      else { await replyText(replyToken, '請上傳照片，或輸入「無」跳過\n\n' + cur.ask); return; }
-      const next = session.step + 1;
-      session.step = next; sessions[userId] = session;
-      await replyText(replyToken, '✅ 已記錄！\n\n' + BASE_STEPS[next].ask); return;
+    } catch (err) {
+      console.error(err.response?.data || err.message);
+      await replyText(replyToken, '❌ 查詢失敗，請通知管理員');
     }
-    if (!text) { await replyText(replyToken, '請輸入文字\n\n' + cur.ask); return; }
-    if (cur.validate) { const err = cur.validate(text); if (err) { await replyText(replyToken, err + '\n\n' + cur.ask); return; } }
-    session.data[cur.key] = (!cur.required && (text === '無' || text === '略過')) ? '' : text;
-    const next = session.step + 1;
-    if (next >= BASE_STEPS.length) {
-      if (!session.data.caseNumber) { session.step = 'ask_skip_reason'; sessions[userId] = session; await replyText(replyToken, '✅ 已記錄！\n\n' + SKIP_REASON_STEP.ask); }
-      else { session.step = 'confirm'; sessions[userId] = session; await replyText(replyToken, buildSummary(session.data)); }
-    } else { session.step = next; sessions[userId] = session; await replyText(replyToken, '✅ 已記錄！\n\n' + BASE_STEPS[next].ask); }
+    delete sessions[userId];
     return;
   }
-  if (session.step === 'ask_skip_reason') {
-    if (!text) { await replyText(replyToken, '請輸入免開異常原因'); return; }
-    session.data.skipReason = text; session.step = 'confirm'; sessions[userId] = session;
-    await replyText(replyToken, buildSummary(session.data)); return;
-  }
-  if (session.step === 'confirm') {
-    if (text !== '1') { await replyText(replyToken, '請輸入「1」送出\n或輸入「2」重新開始\n或輸入「0」回主選單'); return; }
-    try {
-      const name = await getDisplayName(userId);
-      await createNotionPage(session.data, name);
-      const status = session.data.caseNumber ? '處理中' : '未開始';
-      delete sessions[userId];
-      await replyText(replyToken, `✅ 已成功寫入 Notion！\n\n📦 ${session.data.productId}\n⚠️ ${session.data.issue}\n🔢 ${session.data.quantity} pcs\n🔘 狀態：${status}\n👤 回報人：${name}\n\n感謝回報！\n\n輸入「0」回主選單`);
-    } catch (err) { console.error(err.response?.data || err.message); await replyText(replyToken, '❌ 寫入失敗，請通知管理員\n' + (err.response?.data?.message || err.message)); }
-    return;
-  }
-  await replyText(replyToken, MAIN_MENU);
+
+  await replyFlex(replyToken);
 }
 
 // ════════════════════════════════════════
@@ -265,7 +236,7 @@ function genWGNumber() {
 }
 
 // ════════════════════════════════════════
-//  Cloudinary 上傳
+//  Cloudinary 上傳圖片
 // ════════════════════════════════════════
 async function uploadToCloudinary(base64Data) {
   try {
@@ -276,51 +247,99 @@ async function uploadToCloudinary(base64Data) {
     formData.append('timestamp', timestamp);
     formData.append('api_key', CLOUDINARY_KEY);
     formData.append('signature', signature);
-    const r = await axios.post(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/image/upload`, formData.toString(), { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, maxContentLength: Infinity, maxBodyLength: Infinity });
+    const r = await axios.post(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/image/upload`, formData.toString(), {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, maxContentLength: Infinity, maxBodyLength: Infinity
+    });
     return r.data.secure_url;
-  } catch (e) { console.error('Cloudinary upload failed:', e.response?.data || e.message); return null; }
+  } catch (e) { console.error('Cloudinary image upload failed:', e.response?.data || e.message); return null; }
 }
 
 // ════════════════════════════════════════
-//  Excel 相關 helper
+//  Cloudinary 上傳 Excel (raw)
 // ════════════════════════════════════════
-function fetchBuffer(url) {
-  return new Promise((resolve) => {
-    const mod = url.startsWith('https') ? https : http;
-    mod.get(url, (res) => {
-      const chunks = [];
-      res.on('data', c => chunks.push(c));
-      res.on('end', () => resolve(Buffer.concat(chunks)));
-      res.on('error', () => resolve(null));
-    }).on('error', () => resolve(null));
-  });
+async function uploadExcelToCloudinary(buffer, filename) {
+  try {
+    const timestamp = Math.floor(Date.now()/1000);
+    const signature = crypto.createHash('sha1').update(`timestamp=${timestamp}${CLOUDINARY_SECRET}`).digest('hex');
+    const form = new FormData();
+    form.append('file', buffer, { filename, contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    form.append('timestamp', String(timestamp));
+    form.append('api_key', CLOUDINARY_KEY);
+    form.append('signature', signature);
+    form.append('resource_type', 'raw');
+    const r = await axios.post(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/raw/upload`, form, {
+      headers: form.getHeaders(), maxContentLength: Infinity, maxBodyLength: Infinity
+    });
+    return r.data.secure_url;
+  } catch (e) { console.error('Cloudinary excel upload failed:', e.response?.data || e.message); return null; }
 }
 
-async function fetchTemplateBuffer() {
-  const fs   = require('fs');
-  const path = require('path');
-  const filePath = path.join(__dirname, 'template.xlsx');
-  return fs.readFileSync(filePath);
-}
+// ════════════════════════════════════════
+//  產生 Excel 並傳送 LINE
+// ════════════════════════════════════════
+async function generateAndSendExcel(data, wgNumber, reporterName, photoUrl, photoUrl2) {
+  try {
+    const templatePath = path.join(__dirname, 'template.xlsx');
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.readFile(templatePath);
+    const ws = workbook.worksheets[0];
 
-async function sendExcelViaLine(buffer, filename, toUserId) {
-  const timestamp = Math.floor(Date.now()/1000);
-  // Cloudinary 簽名：參數按字母排序，不含 api_key、resource_type、file
-  const sigStr    = `timestamp=${timestamp}${CLOUDINARY_SECRET}`;
-  const signature = crypto.createHash('sha1').update(sigStr).digest('hex');
-  const form = new FormData();
-  form.append('file', buffer, { filename, contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-  form.append('timestamp', String(timestamp));
-  form.append('api_key', CLOUDINARY_KEY);
-  form.append('signature', signature);
-  form.append('resource_type', 'raw');
-  const uploadRes = await axios.post(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/raw/upload`, form, { headers: form.getHeaders(), maxContentLength: Infinity, maxBodyLength: Infinity });
-  const downloadUrl = uploadRes.data.secure_url;
-  await axios.post('https://api.line.me/v2/bot/message/push',
-    { to: toUserId, messages: [{ type: 'text', text: `📋 品質異常通知單已產生！\n\n點擊下載 Excel：\n${downloadUrl}` }] },
-    { headers: { Authorization: `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}`, 'Content-Type': 'application/json' } }
-  );
-  return { success: true, url: downloadUrl };
+    // 填入儲存格
+    const setCell = (addr, val) => { try { ws.getCell(addr).value = val; } catch(e) {} };
+    setCell('C2', wgNumber);
+    setCell('D2', data.replyDate || '');
+    setCell('A4', data.date || new Date().toISOString().split('T')[0]);
+    setCell('B4', data.unit || '');
+    setCell('C4', data.resp || '');
+    setCell('D4', data.customer || '');
+    setCell('E4', data.product || '');
+    setCell('F4', data.series || '');
+    setCell('G4', data.anomaly || '');
+    setCell('H4', parseInt(data.qty) || null);
+    setCell('J4', data.ratio || '');
+    setCell('K4', data.judge || '');
+    setCell('L4', reporterName);
+
+    // 嵌入照片
+    const fetchBuf = (url) => new Promise((resolve) => {
+      const mod = url.startsWith('https') ? require('https') : require('http');
+      mod.get(url, (res) => {
+        const chunks = [];
+        res.on('data', c => chunks.push(c));
+        res.on('end', () => resolve(Buffer.concat(chunks)));
+        res.on('error', () => resolve(null));
+      }).on('error', () => resolve(null));
+    });
+
+    for (const [url, col, row] of [[photoUrl, 0, 4], [photoUrl2, 6, 4]]) {
+      if (url) {
+        const imgBuf = await fetchBuf(url);
+        if (imgBuf) {
+          const imgId = workbook.addImage({ buffer: imgBuf, extension: 'jpeg' });
+          ws.addImage(imgId, { tl: { col, row }, ext: { width: 360, height: 360 } });
+        }
+      }
+    }
+
+    const buffer   = await workbook.xlsx.writeBuffer();
+    const filename = `${wgNumber}.xlsx`;
+
+    // 上傳到 Cloudinary
+    const downloadUrl = await uploadExcelToCloudinary(buffer, filename);
+
+    // 傳送 LINE 訊息給通知對象
+    if (downloadUrl) {
+      for (const uid of NOTIFY_USERS) {
+        await pushText(uid, `📋 品質異常通知單已產生！\n\n異常單號：${wgNumber}\n\n點擊下載 Excel：\n${downloadUrl}`)
+          .catch(e => console.error('push excel link failed:', e.message));
+      }
+    }
+
+    return { buffer, downloadUrl };
+  } catch (e) {
+    console.error('generateAndSendExcel failed:', e.message);
+    return { buffer: null, downloadUrl: null };
+  }
 }
 
 // ════════════════════════════════════════
@@ -333,10 +352,15 @@ app.post('/api/anomaly', async (req, res) => {
     const d = req.body;
     let reporterName = '(未知)';
     if (d.userId) reporterName = await getDisplayName(d.userId);
+
     const wgNumber = genWGNumber();
+
+    // 上傳照片
     let photoUrl = null, photoUrl2 = null;
     if (d.photoData)  photoUrl  = await uploadToCloudinary(d.photoData);
     if (d.photoData2) photoUrl2 = await uploadToCloudinary(d.photoData2);
+
+    // 寫入 Notion
     const toText = (v) => [{ text: { content: v ? String(v) : '' } }];
     const properties = {
       '異常單號':     { title: [{ text: { content: wgNumber } }] },
@@ -355,103 +379,51 @@ app.post('/api/anomaly', async (req, res) => {
       '回報人':       { rich_text: toText(reporterName) },
     };
     if (d.replyDate) properties['需求回覆時間'] = { date: { start: d.replyDate } };
-    if (photoUrl)  properties['異常照片']  = { url: photoUrl };
-    if (photoUrl2) properties['異常照片2'] = { url: photoUrl2 };
-    const pageBody = { parent: { database_id: NOTION_DATABASE_ID }, properties };
-    if (photoUrl) pageBody.children = [{ object: 'block', type: 'image', image: { type: 'external', external: { url: photoUrl } } }];
-    const notionPage = await axios.post('https://api.notion.com/v1/pages', pageBody, { headers: { Authorization: `Bearer ${NOTION_TOKEN}`, 'Notion-Version': '2022-06-28', 'Content-Type': 'application/json' } });
-    const judgeEmoji = d.judge === '驗退X' ? '❌' : d.judge === '特採△' ? '⚠️' : '🔧';
-    const msg = `【異常通報 ${wgNumber}】\n👤 回報人：${reporterName}\n📦 品名：${d.product || '(未填)'}\n📍 發生單位：${d.unit}\n🏭 責任單位：${d.resp}\n⚠️ 異常：${d.anomaly}\n🔢 訂單數量：${d.qty}　比例：${d.ratio}\n${judgeEmoji} 判定：${d.judge}\n📅 日期：${d.date}` + (photoUrl ? `\n📷 照片1：${photoUrl}` : '') + (photoUrl2 ? `\n📷 照片2：${photoUrl2}` : '');
-    for (const uid of NOTIFY_USERS) await pushText(uid, msg).catch(e => console.error('push failed:', e.message));
+    if (photoUrl)    properties['異常照片']  = { url: photoUrl };
+    if (photoUrl2)   properties['異常照片2'] = { url: photoUrl2 };
 
-    // 直接呼叫 generate-excel（不需要 Make.com）
-    const pageId = notionPage.data?.id || notionPage?.id || '';
-    console.log('Notion page ID:', pageId);
-    if (pageId) {
-      axios.post(`http://localhost:${process.env.PORT || 3000}/api/generate-excel`, {
-        pageId: pageId,
-        toUserId: NOTIFY_USERS[0] || ''
-      }).then(() => console.log('Excel generated for:', pageId))
-        .catch(e => console.error('generate-excel failed:', e.message));
+    const pageBody = { parent: { database_id: NOTION_DATABASE_ID }, properties };
+    if (photoUrl || photoUrl2) {
+      pageBody.children = [];
+      if (photoUrl)  pageBody.children.push({ object:'block', type:'image', image:{ type:'external', external:{ url: photoUrl  } } });
+      if (photoUrl2) pageBody.children.push({ object:'block', type:'image', image:{ type:'external', external:{ url: photoUrl2 } } });
     }
+    await axios.post('https://api.notion.com/v1/pages', pageBody, {
+      headers: { Authorization: `Bearer ${NOTION_TOKEN}`, 'Notion-Version': '2022-06-28', 'Content-Type': 'application/json' }
+    });
+
+    // 推播異常通知
+    const judgeEmoji = d.judge === '驗退X' ? '❌' : d.judge === '特採△' ? '⚠️' : '🔧';
+    const msg =
+      `【異常通報 ${wgNumber}】\n` +
+      `👤 回報人：${reporterName}\n` +
+      `📦 品名：${d.product || '(未填)'}　系列：${d.series || ''}\n` +
+      `📍 發生單位：${d.unit}\n` +
+      `🏭 責任單位：${d.resp}\n` +
+      `⚠️ 異常：${d.anomaly}\n` +
+      `🔢 訂單數量：${d.qty}　比例：${d.ratio}\n` +
+      `${judgeEmoji} 判定：${d.judge}\n` +
+      `📅 日期：${d.date}` +
+      (d.replyDate ? `\n📆 回覆期限：${d.replyDate}` : '') +
+      (photoUrl  ? `\n📷 照片1：${photoUrl}`  : '') +
+      (photoUrl2 ? `\n📷 照片2：${photoUrl2}` : '');
+
+    for (const uid of NOTIFY_USERS) {
+      await pushText(uid, msg).catch(e => console.error('push failed:', e.message));
+    }
+
+    // 非同步產生 Excel 並傳送下載連結
+    generateAndSendExcel(d, wgNumber, reporterName, photoUrl, photoUrl2)
+      .then(({ downloadUrl }) => {
+        if (downloadUrl) console.log('Excel uploaded:', downloadUrl);
+      })
+      .catch(e => console.error('Excel background task failed:', e.message));
 
     res.json({ success: true, number: wgNumber, reporter: reporterName });
-  } catch (err) { console.error(err.response?.data || err.message); res.status(500).json({ success: false, error: err.message }); }
-});
-
-// Make.com 呼叫 → 產生 Excel → LINE 傳送
-app.post('/api/generate-excel', async (req, res) => {
-  try {
-    const d = req.body;
-    console.log('generate-excel received keys:', Object.keys(d));
-
-    // 從 Notion API 直接抓取頁面資料
-    const pageId = d.pageId || d['Database Item ID'] || d.id || '';
-    if (!pageId) {
-      return res.status(400).json({ success: false, error: 'Missing pageId' });
-    }
-
-    const pageRes = await axios.get(`https://api.notion.com/v1/pages/${pageId}`, {
-      headers: { Authorization: `Bearer ${NOTION_TOKEN}`, 'Notion-Version': '2022-06-28' }
-    });
-    const p = pageRes.data.properties;
-
-    const getText  = (prop) => prop?.rich_text?.[0]?.plain_text || prop?.title?.[0]?.plain_text || '';
-    const getSelect = (prop) => prop?.select?.name || '';
-    const getNum   = (prop) => prop?.number != null ? String(prop.number) : '';
-    const getDate  = (prop) => prop?.date?.start?.slice(0, 10) || '';
-    const getPerson = (prop) => (prop?.people || []).map(p => p.name).join(', ');
-    const getFile  = (prop) => {
-      if (!prop) return '';
-      // url 類型
-      if (prop.url) return prop.url;
-      // files 類型
-      const files = prop.files || [];
-      if (files.length) return files[0]?.file?.url || files[0]?.external?.url || '';
-      return '';
-    };
-
-    const data = {
-      異常單號:  getText(p['異常單號']),
-      發生日期:  getDate(p['發生日期']),
-      發生單位:  getText(p['發生單位']),
-      責任單位:  getText(p['責任單位']),
-      客戶:      getText(p['客戶']),
-      零件名稱:  getText(p['零件名稱']),
-      系列別:    getText(p['系列別']),
-      異常狀況:  getSelect(p['異常狀況']) || getText(p['異常狀況']),
-      訂單數量:  getNum(p['訂單數量']),
-      異常比例:  getText(p['異常比例']),
-      判定:      getSelect(p['判定']) || getText(p['判定']),
-      回報人:    getPerson(p['回報人']),
-      需求回覆時間: getDate(p['需求回覆時間']),
-      photo1Url: getFile(p['異常照片']),
-      photo2Url: getFile(p['異常照片2']),
-    };
-    console.log('parsed data:', JSON.stringify(data, null, 2));
-    const toUserId = d.toUserId || NOTIFY_USERS[0] || '';
-    const tmplBuffer = await fetchTemplateBuffer();
-    const workbook   = new ExcelJS.Workbook();
-    await workbook.xlsx.load(tmplBuffer);
-    const ws = workbook.worksheets[0];
-    const CELL_MAP = { '異常單號':'C2','需求回覆時間':'D2','發生日期':'A4','發生單位':'B4','責任單位':'C4','客戶':'D4','零件名稱':'E4','系列別':'F4','異常狀況':'G4','訂單數量':'H4','異常比例':'J4','判定':'K4','回報人':'L4' };
-    for (const [key, coord] of Object.entries(CELL_MAP)) {
-      try { ws.getCell(coord).value = data[key]; } catch(e) {}
-    }
-    for (const [urlKey, col, row] of [['photo1Url',0,4],['photo2Url',6,4]]) {
-      if (data[urlKey]) {
-        const imgBuf = await fetchBuffer(data[urlKey]);
-        if (imgBuf) {
-          const imgId = workbook.addImage({ buffer: imgBuf, extension: 'jpeg' });
-          ws.addImage(imgId, { tl: { col, row }, ext: { width: 360, height: 360 } });
-        }
-      }
-    }
-    const outBuffer = await workbook.xlsx.writeBuffer();
-    const filename  = `${data['異常單號'] || 'anomaly'}.xlsx`;
-    const result    = await sendExcelViaLine(outBuffer, filename, toUserId);
-    res.json({ success: true, url: result.url, filename });
-  } catch (err) { console.error('/api/generate-excel error:', err.response?.data || err.message); res.status(500).json({ success: false, error: err.message }); }
+  } catch (err) {
+    console.error(err.response?.data || err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 // Webhook
@@ -460,11 +432,11 @@ app.post('/webhook', async (req, res) => {
   res.status(200).send('OK');
   for (const event of (req.body.events || [])) {
     if (event.type === 'message') await handleMessage(event).catch(console.error);
-    if (event.type === 'follow') await replyText(event.replyToken, '👋 歡迎使用 WinGun 異常回報系統！\n\n' + MAIN_MENU).catch(console.error);
+    if (event.type === 'follow')  await replyFlex(event.replyToken).catch(console.error);
   }
 });
 
-app.get('/', (req, res) => res.json({ status: 'LINE Bot running ✅', routes: ['/api/anomaly', '/api/generate-excel', '/webhook'] }));
+app.get('/', (req, res) => res.json({ status: 'LINE Bot running ✅', routes: ['/api/anomaly', '/webhook'] }));
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Bot started on port ${PORT}`));
