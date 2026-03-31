@@ -359,10 +359,19 @@ app.post('/api/anomaly', async (req, res) => {
     if (photoUrl2) properties['異常照片2'] = { url: photoUrl2 };
     const pageBody = { parent: { database_id: NOTION_DATABASE_ID }, properties };
     if (photoUrl) pageBody.children = [{ object: 'block', type: 'image', image: { type: 'external', external: { url: photoUrl } } }];
-    await axios.post('https://api.notion.com/v1/pages', pageBody, { headers: { Authorization: `Bearer ${NOTION_TOKEN}`, 'Notion-Version': '2022-06-28', 'Content-Type': 'application/json' } });
+    const notionPage = await axios.post('https://api.notion.com/v1/pages', pageBody, { headers: { Authorization: `Bearer ${NOTION_TOKEN}`, 'Notion-Version': '2022-06-28', 'Content-Type': 'application/json' } });
     const judgeEmoji = d.judge === '驗退X' ? '❌' : d.judge === '特採△' ? '⚠️' : '🔧';
     const msg = `【異常通報 ${wgNumber}】\n👤 回報人：${reporterName}\n📦 品名：${d.product || '(未填)'}\n📍 發生單位：${d.unit}\n🏭 責任單位：${d.resp}\n⚠️ 異常：${d.anomaly}\n🔢 訂單數量：${d.qty}　比例：${d.ratio}\n${judgeEmoji} 判定：${d.judge}\n📅 日期：${d.date}` + (photoUrl ? `\n📷 照片1：${photoUrl}` : '') + (photoUrl2 ? `\n📷 照片2：${photoUrl2}` : '');
     for (const uid of NOTIFY_USERS) await pushText(uid, msg).catch(e => console.error('push failed:', e.message));
+
+    // 呼叫 Make.com Webhook 觸發即時產生 Excel
+    if (process.env.MAKE_WEBHOOK_URL) {
+      axios.post(process.env.MAKE_WEBHOOK_URL, {
+        pageId: notionPage.data.id,
+        toUserId: NOTIFY_USERS[0] || ''
+      }).catch(e => console.error('Make webhook failed:', e.message));
+    }
+
     res.json({ success: true, number: wgNumber, reporter: reporterName });
   } catch (err) { console.error(err.response?.data || err.message); res.status(500).json({ success: false, error: err.message }); }
 });
