@@ -354,6 +354,7 @@ app.post('/api/anomaly', async (req, res) => {
       '目前處理狀態': { rich_text: toText('未開始') },
       '回報人':       { rich_text: toText(reporterName) },
     };
+    if (d.replyDate) properties['需求回覆時間'] = { date: { start: d.replyDate } };
     if (photoUrl)  properties['異常照片']  = { url: photoUrl };
     if (photoUrl2) properties['異常照片2'] = { url: photoUrl2 };
     const pageBody = { parent: { database_id: NOTION_DATABASE_ID }, properties };
@@ -411,6 +412,7 @@ app.post('/api/generate-excel', async (req, res) => {
       異常比例:  getText(p['異常比例']),
       判定:      getSelect(p['判定']) || getText(p['判定']),
       回報人:    getPerson(p['回報人']),
+      需求回覆時間: getDate(p['需求回覆時間']),
       photo1Url: getFile(p['異常照片']),
       photo2Url: getFile(p['異常照片2']),
     };
@@ -420,7 +422,7 @@ app.post('/api/generate-excel', async (req, res) => {
     const workbook   = new ExcelJS.Workbook();
     await workbook.xlsx.load(tmplBuffer);
     const ws = workbook.worksheets[0];
-    const CELL_MAP = { '異常單號':'C2','發生日期':'A4','發生單位':'B4','責任單位':'C4','客戶':'D4','零件名稱':'E4','系列別':'F4','異常狀況':'G4','訂單數量':'H4','異常比例':'J4','判定':'K4','回報人':'L4' };
+    const CELL_MAP = { '異常單號':'C2','需求回覆時間':'D2','發生日期':'A4','發生單位':'B4','責任單位':'C4','客戶':'D4','零件名稱':'E4','系列別':'F4','異常狀況':'G4','訂單數量':'H4','異常比例':'J4','判定':'K4','回報人':'L4' };
     for (const [key, coord] of Object.entries(CELL_MAP)) {
       try { ws.getCell(coord).value = data[key]; } catch(e) {}
     }
