@@ -360,7 +360,7 @@ app.post('/api/anomaly', async (req, res) => {
     if (photoUrl) pageBody.children = [{ object: 'block', type: 'image', image: { type: 'external', external: { url: photoUrl } } }];
     await axios.post('https://api.notion.com/v1/pages', pageBody, { headers: { Authorization: `Bearer ${NOTION_TOKEN}`, 'Notion-Version': '2022-06-28', 'Content-Type': 'application/json' } });
     const judgeEmoji = d.judge === '驗退X' ? '❌' : d.judge === '特採△' ? '⚠️' : '🔧';
-    const msg = `【異常通報 ${wgNumber}】\n👤 回報人：${reporterName}\n📦 品名：${d.product || '(未填)'}\n📍 發生單位：${d.unit}\n🏭 責任單位：${d.resp}\n⚠️ 異常：${d.anomaly}\n🔢 訂單數量：${d.qty}　比例：${d.ratio}\n${judgeEmoji} 判定：${d.judge}\n📅 日期：${d.date}` + (photoUrl ? `\n📷 照片：${photoUrl}` : '');
+    const msg = `【異常通報 ${wgNumber}】\n👤 回報人：${reporterName}\n📦 品名：${d.product || '(未填)'}\n📍 發生單位：${d.unit}\n🏭 責任單位：${d.resp}\n⚠️ 異常：${d.anomaly}\n🔢 訂單數量：${d.qty}　比例：${d.ratio}\n${judgeEmoji} 判定：${d.judge}\n📅 日期：${d.date}` + (photoUrl ? `\n📷 照片1：${photoUrl}` : '') + (photoUrl2 ? `\n📷 照片2：${photoUrl2}` : '');
     for (const uid of NOTIFY_USERS) await pushText(uid, msg).catch(e => console.error('push failed:', e.message));
     res.json({ success: true, number: wgNumber, reporter: reporterName });
   } catch (err) { console.error(err.response?.data || err.message); res.status(500).json({ success: false, error: err.message }); }
@@ -389,9 +389,13 @@ app.post('/api/generate-excel', async (req, res) => {
     const getDate  = (prop) => prop?.date?.start?.slice(0, 10) || '';
     const getPerson = (prop) => (prop?.people || []).map(p => p.name).join(', ');
     const getFile  = (prop) => {
-      const files = prop?.files || [];
-      if (!files.length) return '';
-      return files[0]?.file?.url || files[0]?.external?.url || '';
+      if (!prop) return '';
+      // url 類型
+      if (prop.url) return prop.url;
+      // files 類型
+      const files = prop.files || [];
+      if (files.length) return files[0]?.file?.url || files[0]?.external?.url || '';
+      return '';
     };
 
     const data = {
