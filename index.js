@@ -339,21 +339,21 @@ app.post('/api/anomaly', async (req, res) => {
     const properties = {
       '異常單號':     { title: [{ text: { content: wgNumber } }] },
       '發生日期':     { date: { start: new Date().toISOString().split('T')[0] } },
-      '發生地':       { rich_text: toText(d.unit || '') },
       '發生單位':     { rich_text: toText(d.unit || '') },
       '責任單位':     { rich_text: toText(d.resp || '') },
-      '客戶':         { rich_text: toText('') },
-      '零件編號':     { rich_text: toText('') },
+      '客戶':         { rich_text: toText(d.customer || '') },
+      '系列別':       { rich_text: toText(d.series || '') },
       '零件名稱':     { rich_text: toText(d.product || '') },
-      '異常狀況':     { rich_text: toText(d.anomaly || '') },
-      '處理方式':     { rich_text: toText(d.judge || '') },
-      '判定':         { rich_text: toText(d.judge || '') },
+      '異常狀況':     { select: { name: d.anomaly || '外觀不良' } },
+      '處理方式':     { select: { name: d.judge || '特採△' } },
+      '判定':         { select: { name: d.judge || '特採△' } },
       '訂單數量':     { number: parseInt(d.qty) || null },
       '異常比例':     { rich_text: toText(d.ratio || '') },
-      '目前處理狀態': { rich_text: toText('未開始') },
+      '目前處理狀態': { select: { name: '未開始' } },
       '回報人':       { rich_text: toText(reporterName) },
-      '異常照片':     photoUrl ? { url: photoUrl } : { url: null },
     };
+    if (photoUrl) properties['異常照片'] = { files: [{ name: 'photo', type: 'external', external: { url: photoUrl } }] };
+    if (d.photo2Url) properties['異常照片2'] = { files: [{ name: 'photo2', type: 'external', external: { url: d.photo2Url } }] };
     const pageBody = { parent: { database_id: NOTION_DATABASE_ID }, properties };
     if (photoUrl) pageBody.children = [{ object: 'block', type: 'image', image: { type: 'external', external: { url: photoUrl } } }];
     await axios.post('https://api.notion.com/v1/pages', pageBody, { headers: { Authorization: `Bearer ${NOTION_TOKEN}`, 'Notion-Version': '2022-06-28', 'Content-Type': 'application/json' } });
@@ -368,22 +368,63 @@ app.post('/api/anomaly', async (req, res) => {
 app.post('/api/generate-excel', async (req, res) => {
   try {
     const d = req.body;
-    const data = {
-      異常單號:  d.anomalyNo  || d['異常單號']  || '',
-      發生日期:  d.date       || d['發生日期']  || '',
-      發生單位:  d.unit       || d['發生單位']  || '',
-      責任單位:  d.resp       || d['責任單位']  || '',
-      客戶:      d.customer   || d['客戶']      || '',
-      零件名稱:  d.product    || d['零件名稱']  || '',
-      系列別:    d.series     || d['系列別']    || '',
-      異常狀況:  d.anomaly    || d['異常狀況']  || '',
-      訂單數量:  d.qty        || d['訂單數量']  || '',
-      異常比例:  d.ratio      || d['異常比例']  || '',
-      判定:      d.judge      || d['判定']      || '',
-      回報人:    d.reporter   || d['回報人']    || '',
-      photo1Url: d.photo1Url  || d['異常照片']  || '',
-      photo2Url: d.photo2Url  || d['異常照片2'] || '',
+    console.log('generate-excel received:', JSON.stringify(d, null, 2));
+
+    // 解析 Notion 欄位（Make.com 傳來的格式）
+    const getText = (v) => {
+      if (!v) return '';
+      if (typeof v === 'string') return v;
+      if (Array.isArray(v)) return v[0]?.plain_text || v[0]?.text?.content || String(v[0] || '');
+      if (v.plain_text) return v.plain_text;
+      if (v.name) return v.name;
+      return String(v);
     };
+    const getNum = (v) => {
+      if (!v) return '';
+      if (typeof v === 'number') return String(v);
+      if (typeof v === 'string') return v;
+      return String(v);
+    };
+    const getDate = (v) => {
+      if (!v) return '';
+      if (typeof v === 'string') return v.slice(0, 10);
+      if (v.start) return v.start.slice(0, 10);
+      return String(v);
+    };
+    const getPerson = (v) => {
+      if (!v) return '';
+      if (typeof v === 'string') return v;
+      if (Array.isArray(v)) return v.map(p => p.name || p).join(', ');
+      return String(v);
+    };
+    const getFiles = (v) => {
+      if (!v) return '';
+      if (typeof v === 'string') return v;
+      if (Array.isArray(v) && v.length > 0) {
+        const f = v[0];
+        return f.file?.url || f.external?.url || f.url || '';
+      }
+      return '';
+    };
+
+    const p = d['Properties Value'] || d;
+    const data = {
+      異常單號:  getText(d.anomalyNo  || p['異常單號']?.title  || d['異常單號']),
+      發生日期:  getDate(d.date       || p['發生日期']?.date   || d['發生日期']),
+      發生單位:  getText(d.unit       || p['發生單位']?.rich_text || d['發生單位']),
+      責任單位:  getText(d.resp       || p['責任單位']?.rich_text || d['責任單位']),
+      客戶:      getText(d.customer   || p['客戶']?.rich_text  || d['客戶']),
+      零件名稱:  getText(d.product    || p['零件名稱']?.rich_text || d['零件名稱']),
+      系列別:    getText(d.series     || p['系列別']?.rich_text || d['系列別']),
+      異常狀況:  getText(d.anomaly    || p['異常狀況']?.select  || p['異常狀況']?.rich_text || d['異常狀況']),
+      訂單數量:  getNum(d.qty        || p['訂單數量']?.number  || d['訂單數量']),
+      異常比例:  getText(d.ratio      || p['異常比例']?.rich_text || d['異常比例']),
+      判定:      getText(d.judge      || p['判定']?.select     || p['判定']?.rich_text || d['判定']),
+      回報人:    getPerson(d.reporter || p['回報人']?.people   || d['回報人']),
+      photo1Url: getFiles(d.photo1Url || p['異常照片']?.files  || d['異常照片']),
+      photo2Url: getFiles(d.photo2Url || p['異常照片2']?.files || d['異常照片2']),
+    };
+    console.log('parsed data:', JSON.stringify(data, null, 2));
     const toUserId = d.toUserId || NOTIFY_USERS[0] || '';
     const tmplBuffer = await fetchTemplateBuffer();
     const workbook   = new ExcelJS.Workbook();
