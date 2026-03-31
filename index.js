@@ -334,8 +334,9 @@ app.post('/api/anomaly', async (req, res) => {
     let reporterName = '(未知)';
     if (d.userId) reporterName = await getDisplayName(d.userId);
     const wgNumber = genWGNumber();
-    let photoUrl = null;
-    if (d.photoData) photoUrl = await uploadToCloudinary(d.photoData);
+    let photoUrl = null, photoUrl2 = null;
+    if (d.photoData)  photoUrl  = await uploadToCloudinary(d.photoData);
+    if (d.photoData2) photoUrl2 = await uploadToCloudinary(d.photoData2);
     const toText = (v) => [{ text: { content: v ? String(v) : '' } }];
     const properties = {
       '異常單號':     { title: [{ text: { content: wgNumber } }] },
@@ -353,8 +354,8 @@ app.post('/api/anomaly', async (req, res) => {
       '目前處理狀態': { rich_text: toText('未開始') },
       '回報人':       { rich_text: toText(reporterName) },
     };
-    if (photoUrl) properties['異常照片'] = { url: photoUrl };
-    if (d.photo2Url) properties['異常照片2'] = { url: d.photo2Url };
+    if (photoUrl)  properties['異常照片']  = { url: photoUrl };
+    if (photoUrl2) properties['異常照片2'] = { url: photoUrl2 };
     const pageBody = { parent: { database_id: NOTION_DATABASE_ID }, properties };
     if (photoUrl) pageBody.children = [{ object: 'block', type: 'image', image: { type: 'external', external: { url: photoUrl } } }];
     await axios.post('https://api.notion.com/v1/pages', pageBody, { headers: { Authorization: `Bearer ${NOTION_TOKEN}`, 'Notion-Version': '2022-06-28', 'Content-Type': 'application/json' } });
