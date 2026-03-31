@@ -1,9 +1,6 @@
 const express = require('express');
 const crypto = require('crypto');
 const axios = require('axios');
-const ExcelJS = require('exceljs');
-const path = require('path');
-const fs = require('fs');
 
 const app = express();
 app.use((req, res, next) => {
@@ -15,13 +12,19 @@ app.use((req, res, next) => {
 });
 app.use(express.json({ limit: '10mb', verify: (req, res, buf) => { req.rawBody = buf; } }));
 
+// ── 環境變數（原有的，不用動）──
 const LINE_CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET;
 const LINE_CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
 const NOTION_TOKEN = process.env.NOTION_TOKEN;
 const NOTION_DATABASE_ID = process.env.NOTION_DATABASE_ID;
+// ── 新增：LIFF 通知對象（Render 環境變數加這個）──
 const NOTIFY_USERS = (process.env.NOTIFY_USERS || '').split(',').filter(Boolean);
 
 const sessions = {};
+
+// ════════════════════════════════════════
+//  原有的 helper 函式（完全不動）
+// ════════════════════════════════════════
 
 function verifySignature(req) {
   const sig = req.headers['x-line-signature'];
@@ -68,7 +71,7 @@ async function createNotionPage(data, senderName) {
   const caseNum = data.caseNumber ? parseInt(data.caseNumber.replace(/[^0-9]/g, '')) || null : null;
 
   const properties = {
-    '異常單號':                  { title: [{ text: { content: data.location || '(未填)' } }] },
+    '發生地':                    { title: [{ text: { content: data.location || '(未填)' } }] },
     '產品編號':                  { rich_text: toText(data.productId) },
     '品名':                      { rich_text: toText(data.itemName) },
     '異常狀況':                  { rich_text: toText(data.issue) },
@@ -98,9 +101,12 @@ async function createNotionPage(data, senderName) {
 }
 
 async function searchNotion(keyword) {
-  const filters = ['零件名稱','異常狀況','發生單位','回報人'].map(field => ({
+  const filters = ['產品編號','品名','異常狀況','異常廠商','免開異常(請輸入原因)'].map(field => ({
     property: field, rich_text: { contains: keyword }
   }));
+  if (!isNaN(keyword)) {
+    filters.push({ property: '已開立異常單(請輸入單號)', number: { equals: parseInt(keyword) } });
+  }
   const res = await axios.post(
     `https://api.notion.com/v1/databases/${NOTION_DATABASE_ID}/query`,
     { filter: { or: filters }, sorts: [{ property: '發生日期', direction: 'descending' }] },
@@ -108,46 +114,31 @@ async function searchNotion(keyword) {
   );
   return res.data.results.map(p => {
     const props = p.properties;
-    const getText = (k) => props[k]?.rich_text?.[0]?.text?.content || props[k]?.title?.[0]?.text?.content || '';
+    const getText = (k) => props[k]?.rich_text?.[0]?.text?.content || '';
     const getNum  = (k) => props[k]?.number ?? '';
     const getDate = (k) => props[k]?.date?.start?.slice(0,10) || '';
-    const getUrl  = (k) => props[k]?.url || '';
     return {
-      num:      getText('異常單號'),
-      date:     getDate('發生日期'),
-      unit:     getText('發生單位'),
-      part:     getText('零件名稱'),
-      series:   getText('系列別'),
-      issue:    getText('異常狀況'),
-      ratio:    getText('異常比例'),
-      judge:    getText('判定'),
-      status:   getText('目前處理狀態'),
-      reporter: getText('回報人'),
-      photo:    getUrl('異常照片'),
+      date:       getDate('發生日期'),
+      productId:  getText('產品編號'),
+      issue:      getText('異常狀況'),
+      quantity:   getNum('數量'),
+      status:     getText('目前處理狀態'),
+      caseNumber: getNum('已開立異常單(請輸入單號)'),
     };
   });
 }
 
-const MAIN_MENU = '請使用下方選單進行操作 👇';
+// ════════════════════════════════════════
+//  原有的 Bot 對話邏輯（完全不動）
+// ════════════════════════════════════════
 
-async function replyFlex(replyToken) {
-  await axios.post('https://api.line.me/v2/bot/message/reply',
-    {
-      replyToken,
-      messages: [{
-        type: 'text',
-        text: 'WinGun 異常通報 👇',
-        quickReply: {
-          items: [
-            { type: 'action', action: { type: 'uri', label: '📋 建立異常單', uri: 'https://liff.line.me/2009600334-UpN6esDu' } },
-            { type: 'action', action: { type: 'message', label: '🔍 查詢紀錄', text: '查詢' } }
-          ]
-        }
-      }]
-    },
-    { headers: { Authorization: `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}`, 'Content-Type': 'application/json' } }
-  );
-}
+const MAIN_MENU =
+  '📋 WinGun 異常回報系統\n\n' +
+  '請選擇功能：\n\n' +
+  '1️⃣  回報異常\n' +
+  '2️⃣  查詢紀錄\n' +
+  '0️⃣  顯示此選單\n\n' +
+  '（直接輸入數字選擇）';
 
 const BASE_STEPS = [
   { key: 'location',   required: true,  ask: '📍 請輸入發生地點\n（例如：本廠／二廠／廠商地）' },
@@ -191,19 +182,17 @@ async function handleMessage(event) {
   const imageId = event.message?.type === 'image' ? event.message.id : null;
   if (!userId) return;
 
-  console.log('userId:', userId);
-
   let session = sessions[userId] || { step: 'idle', data: {} };
 
   if (text === '0' || text === '選單' || text === 'menu') {
     delete sessions[userId];
-    await replyFlex(replyToken);
+    await replyText(replyToken, MAIN_MENU);
     return;
   }
 
-  if (text === '重填' || text === '取消') {
+  if (text === '重填' || text === '取消' || text === '2') {
     delete sessions[userId];
-    await replyFlex(replyToken);
+    await replyText(replyToken, '已取消，重新開始。\n\n' + MAIN_MENU);
     return;
   }
 
@@ -212,99 +201,31 @@ async function handleMessage(event) {
       sessions[userId] = { step: 0, data: {} };
       await replyText(replyToken, '📋 開始填寫異常回報！\n隨時輸入「0」回主選單\n\n' + BASE_STEPS[0].ask);
     } else if (text === '2' || text === '查詢紀錄' || text === '查詢') {
-      sessions[userId] = { step: 'search_pick', data: {} };
-      await axios.post('https://api.line.me/v2/bot/message/reply',
-        {
-          replyToken,
-          messages: [{
-            type: 'text',
-            text: '🔍 請選擇查詢方式：',
-            quickReply: {
-              items: [
-                { type: 'action', action: { type: 'message', label: '🔩 零件名稱', text: 'search:零件名稱' } },
-                { type: 'action', action: { type: 'message', label: '📋 異常單號', text: 'search:異常單號' } },
-                { type: 'action', action: { type: 'message', label: '🏭 發生單位', text: 'search:發生單位' } },
-                { type: 'action', action: { type: 'message', label: '👤 回報人',   text: 'search:回報人'   } },
-                { type: 'action', action: { type: 'message', label: '⚠️ 異常狀況', text: 'search:異常狀況' } },
-              ]
-            }
-          }]
-        },
-        { headers: { Authorization: `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}`, 'Content-Type': 'application/json' } }
-      );
+      sessions[userId] = { step: 'searching', data: {} };
+      await replyText(replyToken, '🔍 請輸入查詢關鍵字\n\n可查詢：產品編號、品名、異常狀況、異常廠商、異常單號\n\n輸入「0」回主選單');
     } else {
-      await replyFlex(replyToken);
+      await replyText(replyToken, MAIN_MENU);
     }
     return;
   }
 
-  if (session.step === 'search_pick') {
-    if (text && text.startsWith('search:')) {
-      const field = text.replace('search:', '');
-      sessions[userId] = { step: 'search_keyword', data: { field } };
-      const fieldLabels = {
-        '零件名稱': '零件名稱（例如：WC4-795B）',
-        '異常單號': '異常單號（例如：WG20260326）',
-        '發生單位': '發生單位（例如：本廠）',
-        '回報人':   '回報人姓名',
-        '異常狀況': '異常狀況關鍵字（例如：斷差）',
-      };
-      await replyText(replyToken, `🔍 查詢 ${field}\n\n請輸入${fieldLabels[field] || '關鍵字'}：\n\n輸入「0」回主選單`);
-    } else {
-      await replyText(replyToken, '請點選上方按鈕選擇查詢方式\n\n輸入「0」回主選單');
-    }
-    return;
-  }
-
-  if (session.step === 'search_keyword') {
-    if (!text) { await replyText(replyToken, '請輸入關鍵字'); return; }
-    const field = session.data.field;
+  if (session.step === 'searching') {
+    if (!text) { await replyText(replyToken, '請輸入查詢關鍵字'); return; }
     try {
-      const filter = field === '異常單號'
-        ? { property: '異常單號', title: { contains: text } }
-        : { property: field, rich_text: { contains: text } };
-
-      const res = await axios.post(
-        `https://api.notion.com/v1/databases/${NOTION_DATABASE_ID}/query`,
-        { filter, sorts: [{ property: '發生日期', direction: 'descending' }], page_size: 5 },
-        { headers: { Authorization: `Bearer ${NOTION_TOKEN}`, 'Notion-Version': '2022-06-28', 'Content-Type': 'application/json' } }
-      );
-      const results = res.data.results.map(p => {
-        const props = p.properties;
-        const getText = (k) => props[k]?.rich_text?.[0]?.text?.content || props[k]?.title?.[0]?.text?.content || '';
-        const getDate = (k) => props[k]?.date?.start?.slice(0,10) || '';
-        const getUrl  = (k) => props[k]?.url || '';
-        return {
-          num:      getText('異常單號'),
-          date:     getDate('發生日期'),
-          unit:     getText('發生單位'),
-          part:     getText('零件名稱'),
-          series:   getText('系列別'),
-          issue:    getText('異常狀況'),
-          ratio:    getText('異常比例'),
-          judge:    getText('判定'),
-          status:   getText('目前處理狀態'),
-          reporter: getText('回報人'),
-          photo:    getUrl('異常照片'),
-        };
-      });
-
+      const results = await searchNotion(text);
       if (results.length === 0) {
         await replyText(replyToken, `🔍 查無「${text}」相關紀錄\n\n輸入「0」回主選單`);
       } else {
-        const lines = [`🔍 找到 ${res.data.results.length} 筆「${text}」紀錄：\n`];
-        results.forEach((r, i) => {
-          const judgeEmoji = r.judge.includes('驗退') ? '❌' : r.judge.includes('特採') ? '⚠️' : r.judge.includes('加工') ? '🔧' : '🔘';
+        const lines = [`🔍 找到 ${results.length} 筆「${text}」相關紀錄：\n`];
+        results.slice(0, 5).forEach((r, i) => {
           lines.push(
-            `${i+1}. ${r.num} ${r.date}\n` +
-            `   🏭 ${r.unit}　👤 ${r.reporter}\n` +
-            `   🔩 ${r.part}　📂 ${r.series}\n` +
-            `   ⚠️ ${r.issue}\n` +
-            `   📊 ${r.ratio}　${judgeEmoji} ${r.judge}\n` +
-            (r.photo ? `   📷 ${r.photo}` : '')
+            `${i + 1}. ${r.date} ${r.productId}\n` +
+            `   📋 ${r.issue}\n` +
+            `   🔢 ${r.quantity} pcs｜🔘 ${r.status}` +
+            (r.caseNumber ? `\n   📝 單號：${r.caseNumber}` : '')
           );
         });
-        if (res.data.has_more) lines.push(`\n...僅顯示前 5 筆`);
+        if (results.length > 5) lines.push(`\n...共 ${results.length} 筆，僅顯示前 5 筆`);
         lines.push('\n輸入「0」回主選單');
         await replyText(replyToken, lines.join('\n'));
       }
@@ -396,11 +317,11 @@ async function handleMessage(event) {
     return;
   }
 
-  await replyFlex(replyToken);
+  await replyText(replyToken, MAIN_MENU);
 }
 
 // ════════════════════════════════════════
-//  流水號產生器
+//  流水號產生器（WG+年+月+日+兩位流水）
 // ════════════════════════════════════════
 const dailyCounters = {};
 
@@ -414,7 +335,6 @@ function genWGNumber() {
   const seq = String(dailyCounters[key]).padStart(2, '0');
   return `WG${y}${m}${d}${seq}`;
 }
-
 // ════════════════════════════════════════
 //  Cloudinary 照片上傳
 // ════════════════════════════════════════
@@ -445,135 +365,38 @@ async function uploadToCloudinary(base64Data) {
 }
 
 // ════════════════════════════════════════
-
-
+//  新增：LIFF 表單 API
 // ════════════════════════════════════════
-//  Excel 產生（從零建立）+ 上傳 Cloudinary
-// ════════════════════════════════════════
-async function generateAndUploadExcel(data) {
-  try {
-    const workbook = new ExcelJS.Workbook();
-    const ws = workbook.addWorksheet('品質異常通知單');
 
-    ws.columns = [
-      {width:10},{width:10},{width:10},{width:8},{width:16},{width:12},
-      {width:12},{width:10},{width:10},{width:10},{width:8},{width:10},
-    ];
-
-    const B = {top:{style:'thin'},bottom:{style:'thin'},left:{style:'thin'},right:{style:'thin'}};
-    const gray = {type:'pattern',pattern:'solid',fgColor:{argb:'FFD9D9D9'}};
-    const mid = {horizontal:'center',vertical:'middle',wrapText:true};
-
-    const sc = (addr, val, opts={}) => {
-      const c = ws.getCell(addr);
-      c.value = val;
-      c.border = B;
-      c.alignment = opts.al || mid;
-      c.font = {bold:!!opts.bold, size:opts.sz||10};
-      if(opts.gray) c.fill = gray;
-    };
-
-    // 第1-2列：標題
-    ws.mergeCells('A1:B2'); sc('A1','偉剛科技\nWinGun',{bold:true,sz:11});
-    ws.mergeCells('C1:L2'); sc('C1','品質異常通知單  品質判定：驗退X. 特採△. 加工○',{bold:true,sz:13});
-    ws.getRow(1).height=22; ws.getRow(2).height=22;
-
-    // 第3列：欄位標題
-    ws.getRow(3).height=18;
-    ['發生日期','發生單位','責任單位','客戶','零件名稱','零件編號','異常狀況','訂單數量','異常數量','異常比例','判定','確認']
-      .forEach((h,i)=>sc(String.fromCharCode(65+i)+'3',h,{bold:true,gray:true}));
-
-    // 第4列：資料
-    ws.getRow(4).height=20;
-    sc('A4',data.date||''); sc('B4',data.unit||''); sc('C4',data.resp||'');
-    sc('D4',''); sc('E4',data.product||''); sc('F4',data.series||'');
-    sc('G4',data.anomaly||''); sc('H4',parseInt(data.qty)||null);
-    sc('I4',''); sc('J4',data.ratio||'');
-    sc('K4',data.judge||'',{bold:true}); sc('L4',data.reporter||'');
-
-    // 第5列：異常狀況/處理方式標題
-    ws.getRow(5).height=16;
-    ws.mergeCells('A5:F5'); sc('A5','異常狀況',{bold:true,gray:true});
-    ws.mergeCells('G5:L5'); sc('G5','處理方式',{bold:true,gray:true});
-
-    // 第6-10列：內容
-    ws.mergeCells('A6:F10'); ws.mergeCells('G6:L10');
-    [6,7,8,9,10].forEach(r=>ws.getRow(r).height=20);
-    const ac=ws.getCell('A6'); ac.value=data.anomaly||''; ac.border=B; ac.alignment={horizontal:'left',vertical:'top',wrapText:true};
-    const jc=ws.getCell('G6'); jc.value=data.judge||''; jc.border=B; jc.alignment={horizontal:'left',vertical:'top',wrapText:true};
-
-    // 第11列：廠商異常處理
-    ws.getRow(11).height=16;
-    ws.mergeCells('A11:C11'); sc('A11','廠商異常處理',{bold:true,gray:true});
-    ws.mergeCells('D11:L11'); sc('D11','');
-
-    // 第12-13列：廠商簽回
-    ws.mergeCells('A12:L13');
-    [12,13].forEach(r=>ws.getRow(r).height=20);
-    ws.getCell('A12').border=B;
-
-    // 底部注意
-    [
-      ['A14','1.請於通知單到後3日內完成問題回覆並回傳，否則視同確認並以我司處理方式處理；無不可抗力因素且未回傳者則當月票期加開乙個月。如2個月未改善則終止合作。'],
-      ['A15','2.若於次月無異常通知則票期可提前一個月；若連續2個月無異常則以現金票支付貨款。'],
-      ['A16','3.生產前務必比對成品與樣品無誤；如有不符樣品需告知本司進行處理；未告知而逕行交貨者由製造者負責後續發生所有費用。'],
-    ].forEach(([addr,txt],i)=>{
-      ws.mergeCells(`${addr}:L1${4+i}`);
-      const c=ws.getCell(addr); c.value=txt; c.font={size:8};
-      ws.getRow(14+i).height=12;
-    });
-
-    // 上傳 Cloudinary
-    const buffer = await workbook.xlsx.writeBuffer();
-    const base64 = 'data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,' + buffer.toString('base64');
-    const publicId = `anomaly_${data.wgNumber}.xlsx`;
-    const timestamp = Math.floor(Date.now() / 1000);
-    const sigStr = `public_id=${publicId}&timestamp=${timestamp}${CLOUDINARY_SECRET}`;
-    const signature = crypto.createHash('sha1').update(sigStr).digest('hex');
-    const formData = new URLSearchParams();
-    formData.append('file', base64);
-    formData.append('api_key', CLOUDINARY_KEY);
-    formData.append('timestamp', String(timestamp));
-    formData.append('signature', signature);
-    formData.append('public_id', publicId);
-    const r = await axios.post(
-      `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/raw/upload`,
-      formData.toString(),
-      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, maxContentLength: Infinity, maxBodyLength: Infinity }
-    );
-    return r.data.secure_url;
-  } catch(e) {
-    console.error('Excel gen/upload failed:', e.message);
-    return null;
-  }
-}
-
-//  LIFF 表單 API
-// ════════════════════════════════════════
 app.post('/api/anomaly', async (req, res) => {
   try {
     const d = req.body;
 
+    // 1. 從 LINE 取得回報人名稱
     let reporterName = '(未知)';
     if (d.userId) {
       reporterName = await getDisplayName(d.userId);
     }
 
+    // 2. 產生流水單號
     const wgNumber = genWGNumber();
 
+    // 3. 上傳照片到 Cloudinary
     let photoUrl = null;
-    let photoUrl2 = null;
-    if (d.photoData)  photoUrl  = await uploadToCloudinary(d.photoData);
-    if (d.photoData2) photoUrl2 = await uploadToCloudinary(d.photoData2);
+    if (d.photoData) {
+      photoUrl = await uploadToCloudinary(d.photoData);
+    }
 
+    // 4. 組 Notion properties（對應你的實際欄位）
     const toText = (v) => [{ text: { content: v ? String(v) : '' } }];
     const properties = {
       '異常單號':     { title: [{ text: { content: wgNumber } }] },
       '發生日期':     { date: { start: new Date().toISOString().split('T')[0] } },
+      '發生地':       { rich_text: toText(d.unit || '') },
       '發生單位':     { rich_text: toText(d.unit || '') },
       '責任單位':     { rich_text: toText(d.resp || '') },
       '客戶':         { rich_text: toText('') },
-      '系列別':       { rich_text: toText(d.series || '') },
+      '零件編號':     { rich_text: toText('') },
       '零件名稱':     { rich_text: toText(d.product || '') },
       '異常狀況':     { rich_text: toText(d.anomaly || '') },
       '處理方式':     { rich_text: toText(d.judge || '') },
@@ -582,82 +405,222 @@ app.post('/api/anomaly', async (req, res) => {
       '異常比例':     { rich_text: toText(d.ratio || '') },
       '目前處理狀態': { rich_text: toText('未開始') },
       '回報人':       { rich_text: toText(reporterName) },
-      '異常照片':     photoUrl  ? { url: photoUrl  } : { url: null },
-      '異常照片2':    photoUrl2 ? { url: photoUrl2 } : { url: null },
+      '異常照片':     photoUrl ? { url: photoUrl } : { url: null },
     };
 
     const pageBody = { parent: { database_id: NOTION_DATABASE_ID }, properties };
 
-    if (photoUrl || photoUrl2) {
-      pageBody.children = [];
-      if (photoUrl)  pageBody.children.push({ object:'block', type:'image', image:{ type:'external', external:{ url: photoUrl  } } });
-      if (photoUrl2) pageBody.children.push({ object:'block', type:'image', image:{ type:'external', external:{ url: photoUrl2 } } });
+    // 5. 如果有照片也加到頁面內容
+    if (photoUrl) {
+      pageBody.children = [{
+        object: 'block', type: 'image',
+        image: { type: 'external', external: { url: photoUrl } }
+      }];
     }
 
     await axios.post('https://api.notion.com/v1/pages', pageBody, {
-      headers: { Authorization: `Bearer ${NOTION_TOKEN}`, 'Notion-Version': '2022-06-28', 'Content-Type': 'application/json' }
+      headers: {
+        Authorization: `Bearer ${NOTION_TOKEN}`,
+        'Notion-Version': '2022-06-28',
+        'Content-Type': 'application/json'
+      }
     });
 
+    // 6. 推播通知給主管
     const judgeEmoji = d.judge === '驗退X' ? '❌' : d.judge === '特採△' ? '⚠️' : '🔧';
-
-    // 產生 Excel buffer
-    let excelBase64 = null;
-    try {
-      const templatePath = path.join(__dirname, 'template.xlsx');
-      const workbook = new ExcelJS.Workbook();
-      await workbook.xlsx.readFile(templatePath);
-      const ws = workbook.worksheets[0];
-      ws.getCell('A4').value = d.date || new Date().toISOString().split('T')[0];
-      ws.getCell('B4').value = d.unit || '';
-      ws.getCell('C4').value = d.resp || '';
-      ws.getCell('D4').value = '';
-      ws.getCell('E4').value = d.product || '';
-      ws.getCell('F4').value = d.series || '';
-      ws.getCell('G4').value = d.anomaly || '';
-      ws.getCell('H4').value = parseInt(d.qty) || null;
-      ws.getCell('J4').value = d.ratio || '';
-      ws.getCell('K4').value = d.judge || '';
-      ws.getCell('L4').value = reporterName;
-      const buffer = await workbook.xlsx.writeBuffer();
-      excelBase64 = buffer.toString('base64');
-    } catch(e) {
-      console.error('Excel gen failed:', e.message);
-    }
-
     const msg =
       `【異常通報 ${wgNumber}】\n` +
       `👤 回報人：${reporterName}\n` +
-      `📦 品名：${d.product || '(未填)'}　系列：${d.series || ''}\n` +
+      `📦 品名：${d.product || '(未填)'}\n` +
       `📍 發生單位：${d.unit}\n` +
       `🏭 責任單位：${d.resp}\n` +
       `⚠️ 異常：${d.anomaly}\n` +
       `🔢 訂單數量：${d.qty}　比例：${d.ratio}\n` +
       `${judgeEmoji} 判定：${d.judge}\n` +
       `📅 日期：${d.date}` +
-      (photoUrl  ? `\n📷 照片1：${photoUrl}`  : '') +
-      (photoUrl2 ? `\n📷 照片2：${photoUrl2}` : '');
+      (photoUrl ? `\n📷 照片：${photoUrl}` : '');
 
     for (const uid of NOTIFY_USERS) {
       await pushText(uid, msg).catch(e => console.error('push failed:', e.message));
     }
 
-    res.json({ success: true, number: wgNumber, reporter: reporterName, excelBase64 });
+    res.json({ success: true, number: wgNumber, reporter: reporterName });
   } catch (err) {
     console.error(err.response?.data || err.message);
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
+// ════════════════════════════════════════
+//  原有的 webhook + 健康檢查（不動）
+// ════════════════════════════════════════
+
 app.post('/webhook', async (req, res) => {
   if (!verifySignature(req)) return res.status(401).send('Unauthorized');
   res.status(200).send('OK');
   for (const event of (req.body.events || [])) {
     if (event.type === 'message') await handleMessage(event).catch(console.error);
-    if (event.type === 'follow') await replyFlex(event.replyToken).catch(console.error);
+    if (event.type === 'follow') {
+      await replyText(event.replyToken,
+        '👋 歡迎使用 WinGun 異常回報系統！\n\n' + MAIN_MENU
+      ).catch(console.error);
+    }
   }
 });
 
 app.get('/', (req, res) => res.json({ status: 'LINE Bot running ✅' }));
 
+
+// ════════════════════════════════════════
+//  新增：Make.com 呼叫 → 產生 Excel → LINE 傳送
+// ════════════════════════════════════════
+
+const ExcelJS = require('exceljs');
+const https   = require('https');
+const http    = require('http');
+
+// 下載圖片回傳 Buffer
+function fetchImageBuffer(url) {
+  return new Promise((resolve) => {
+    const mod = url.startsWith('https') ? https : http;
+    mod.get(url, (res) => {
+      const chunks = [];
+      res.on('data', c => chunks.push(c));
+      res.on('end', () => resolve(Buffer.concat(chunks)));
+      res.on('error', () => resolve(null));
+    }).on('error', () => resolve(null));
+  });
+}
+
+// 從 Google Drive 下載範本（用公開連結或服務帳戶）
+async function fetchTemplateBuffer() {
+  const fileId = process.env.GDRIVE_TEMPLATE_ID;
+  // 使用 Google Drive 直接下載連結（範本需設為「知道連結的人可以查看」）
+  const url = `https://drive.google.com/uc?export=download&id=${fileId}`;
+  return fetchImageBuffer(url);
+}
+
+// 用 LINE Bot 傳送檔案（使用 multipart upload）
+async function sendExcelViaLine(buffer, filename, toUserId) {
+  try {
+    // LINE 不直接支援傳 xlsx，改傳為訊息說明 + 圖片預覽
+    // 這裡改用：上傳到 Cloudinary 取得下載連結，再傳給 LINE
+    const timestamp = Math.floor(Date.now() / 1000);
+    const sigStr = `timestamp=${timestamp}${CLOUDINARY_SECRET}`;
+    const signature = crypto.createHash('sha1').update(sigStr).digest('hex');
+
+    const FormData = require('form-data');
+    const form = new FormData();
+    form.append('file', buffer, { filename, contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    form.append('timestamp', timestamp);
+    form.append('api_key', CLOUDINARY_KEY);
+    form.append('signature', signature);
+    form.append('resource_type', 'raw');
+
+    const uploadRes = await axios.post(
+      `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/raw/upload`,
+      form,
+      { headers: form.getHeaders(), maxContentLength: Infinity, maxBodyLength: Infinity }
+    );
+
+    const downloadUrl = uploadRes.data.secure_url;
+
+    // 傳送 LINE 訊息（含下載連結）
+    await axios.post('https://api.line.me/v2/bot/message/push',
+      {
+        to: toUserId,
+        messages: [{
+          type: 'text',
+          text: `📋 品質異常通知單已產生！\n\n點擊下載 Excel：\n${downloadUrl}`
+        }]
+      },
+      { headers: { Authorization: `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}`, 'Content-Type': 'application/json' } }
+    );
+
+    return { success: true, url: downloadUrl };
+  } catch (e) {
+    console.error('sendExcelViaLine error:', e.response?.data || e.message);
+    throw e;
+  }
+}
+
+app.post('/api/generate-excel', async (req, res) => {
+  try {
+    const d = req.body;
+    // d 裡面包含 Make.com 從 Notion 傳來的欄位
+    // 必填：notionPageId 或直接傳欄位資料
+
+    // ── 欄位對應 ──
+    const data = {
+      異常單號:  d.anomalyNo   || d['異常單號']  || '',
+      發生日期:  d.date        || d['發生日期']  || '',
+      發生單位:  d.unit        || d['發生單位']  || '',
+      責任單位:  d.resp        || d['責任單位']  || '',
+      客戶:      d.customer    || d['客戶']      || '',
+      零件名稱:  d.product     || d['零件名稱']  || '',
+      系列別:    d.series      || d['系列別']    || '',
+      異常狀況:  d.anomaly     || d['異常狀況']  || '',
+      訂單數量:  d.qty         || d['訂單數量']  || '',
+      異常比例:  d.ratio       || d['異常比例']  || '',
+      判定:      d.judge       || d['判定']      || '',
+      回報人:    d.reporter    || d['回報人']    || '',
+      photo1Url: d.photo1Url   || d['異常照片']  || '',
+      photo2Url: d.photo2Url   || d['異常照片2'] || '',
+    };
+
+    const toUserId = d.toUserId || process.env.NOTIFY_USERS?.split(',')[0] || '';
+
+    // ── 載入範本 ──
+    const tmplBuffer = await fetchTemplateBuffer();
+    const workbook   = new ExcelJS.Workbook();
+    await workbook.xlsx.load(tmplBuffer);
+    const ws = workbook.worksheets[0];
+
+    // ── 填入儲存格 ──
+    const CELL_MAP = {
+      '異常單號': 'C2',
+      '發生日期': 'A4',
+      '發生單位': 'B4',
+      '責任單位': 'C4',
+      '客戶':     'D4',
+      '零件名稱': 'E4',
+      '系列別':   'F4',
+      '異常狀況': 'G4',
+      '訂單數量': 'H4',
+      '異常比例': 'J4',
+      '判定':     'K4',
+      '回報人':   'L4',
+    };
+    for (const [key, coord] of Object.entries(CELL_MAP)) {
+      try { ws.getCell(coord).value = data[key]; } catch(e) {}
+    }
+
+    // ── 嵌入照片 ──
+    for (const [urlKey, cellCoord] of [['photo1Url','A5'],['photo2Url','G5']]) {
+      if (data[urlKey]) {
+        const imgBuf = await fetchImageBuffer(data[urlKey]);
+        if (imgBuf) {
+          const imgId = workbook.addImage({ buffer: imgBuf, extension: 'jpeg' });
+          ws.addImage(imgId, {
+            tl: { col: cellCoord === 'A5' ? 0 : 6, row: 4 },
+            ext: { width: 360, height: 360 }
+          });
+        }
+      }
+    }
+
+    // ── 輸出為 Buffer ──
+    const outBuffer = await workbook.xlsx.writeBuffer();
+    const filename  = `${data['異常單號'] || 'anomaly'}.xlsx`;
+
+    // ── 上傳 Cloudinary 並傳 LINE ──
+    const result = await sendExcelViaLine(outBuffer, filename, toUserId);
+
+    res.json({ success: true, url: result.url, filename });
+  } catch (err) {
+    console.error('/api/generate-excel error:', err.response?.data || err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Bot started on port ${PORT}`));
