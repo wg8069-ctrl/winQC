@@ -305,11 +305,12 @@ async function fetchTemplateBuffer() {
 
 async function sendExcelViaLine(buffer, filename, toUserId) {
   const timestamp = Math.floor(Date.now()/1000);
-  const sigStr    = `resource_type=raw&timestamp=${timestamp}${CLOUDINARY_SECRET}`;
+  // Cloudinary 簽名：參數按字母排序，不含 api_key、resource_type、file
+  const sigStr    = `timestamp=${timestamp}${CLOUDINARY_SECRET}`;
   const signature = crypto.createHash('sha1').update(sigStr).digest('hex');
   const form = new FormData();
   form.append('file', buffer, { filename, contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-  form.append('timestamp', timestamp);
+  form.append('timestamp', String(timestamp));
   form.append('api_key', CLOUDINARY_KEY);
   form.append('signature', signature);
   form.append('resource_type', 'raw');
