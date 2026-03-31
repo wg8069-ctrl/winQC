@@ -365,11 +365,16 @@ app.post('/api/anomaly', async (req, res) => {
     for (const uid of NOTIFY_USERS) await pushText(uid, msg).catch(e => console.error('push failed:', e.message));
 
     // 呼叫 Make.com Webhook 觸發即時產生 Excel
-    if (process.env.MAKE_WEBHOOK_URL) {
+    const pageId = notionPage.data?.id || notionPage?.id || '';
+    console.log('Notion page ID:', pageId);
+    if (process.env.MAKE_WEBHOOK_URL && pageId) {
       axios.post(process.env.MAKE_WEBHOOK_URL, {
-        pageId: notionPage.data.id,
+        pageId: pageId,
         toUserId: NOTIFY_USERS[0] || ''
-      }).catch(e => console.error('Make webhook failed:', e.message));
+      }).then(() => console.log('Make webhook sent:', pageId))
+        .catch(e => console.error('Make webhook failed:', e.message));
+    } else {
+      console.log('Webhook skipped - URL:', !!process.env.MAKE_WEBHOOK_URL, 'pageId:', pageId);
     }
 
     res.json({ success: true, number: wgNumber, reporter: reporterName });
