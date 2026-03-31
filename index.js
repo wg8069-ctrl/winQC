@@ -351,6 +351,7 @@ app.post('/api/anomaly', async (req, res) => {
   try {
     const d = req.body;
     let reporterName = '(未知)';
+    console.log('anomaly submitted by userId:', d.userId || '(no userId)');
     if (d.userId) reporterName = await getDisplayName(d.userId);
 
     const wgNumber = genWGNumber();
