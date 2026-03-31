@@ -297,8 +297,9 @@ function fetchBuffer(url) {
 }
 
 async function fetchTemplateBuffer() {
-  const url = `https://drive.google.com/uc?export=download&id=${GDRIVE_TEMPLATE_ID}`;
-  return fetchBuffer(url);
+  const url = `https://docs.google.com/spreadsheets/d/${GDRIVE_TEMPLATE_ID}/export?format=xlsx`;
+  const r = await axios.get(url, { responseType: 'arraybuffer' });
+  return Buffer.from(r.data);
 }
 
 async function sendExcelViaLine(buffer, filename, toUserId) {
