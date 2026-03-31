@@ -364,17 +364,15 @@ app.post('/api/anomaly', async (req, res) => {
     const msg = `【異常通報 ${wgNumber}】\n👤 回報人：${reporterName}\n📦 品名：${d.product || '(未填)'}\n📍 發生單位：${d.unit}\n🏭 責任單位：${d.resp}\n⚠️ 異常：${d.anomaly}\n🔢 訂單數量：${d.qty}　比例：${d.ratio}\n${judgeEmoji} 判定：${d.judge}\n📅 日期：${d.date}` + (photoUrl ? `\n📷 照片1：${photoUrl}` : '') + (photoUrl2 ? `\n📷 照片2：${photoUrl2}` : '');
     for (const uid of NOTIFY_USERS) await pushText(uid, msg).catch(e => console.error('push failed:', e.message));
 
-    // 呼叫 Make.com Webhook 觸發即時產生 Excel
+    // 直接呼叫 generate-excel（不需要 Make.com）
     const pageId = notionPage.data?.id || notionPage?.id || '';
     console.log('Notion page ID:', pageId);
-    if (process.env.MAKE_WEBHOOK_URL && pageId) {
-      axios.post(process.env.MAKE_WEBHOOK_URL, {
+    if (pageId) {
+      axios.post(`http://localhost:${process.env.PORT || 3000}/api/generate-excel`, {
         pageId: pageId,
         toUserId: NOTIFY_USERS[0] || ''
-      }).then(() => console.log('Make webhook sent:', pageId))
-        .catch(e => console.error('Make webhook failed:', e.message));
-    } else {
-      console.log('Webhook skipped - URL:', !!process.env.MAKE_WEBHOOK_URL, 'pageId:', pageId);
+      }).then(() => console.log('Excel generated for:', pageId))
+        .catch(e => console.error('generate-excel failed:', e.message));
     }
 
     res.json({ success: true, number: wgNumber, reporter: reporterName });
