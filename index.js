@@ -297,9 +297,10 @@ function fetchBuffer(url) {
 }
 
 async function fetchTemplateBuffer() {
-  const url = `https://docs.google.com/spreadsheets/d/${GDRIVE_TEMPLATE_ID}/export?format=xlsx`;
-  const r = await axios.get(url, { responseType: 'arraybuffer' });
-  return Buffer.from(r.data);
+  const fs   = require('fs');
+  const path = require('path');
+  const filePath = path.join(__dirname, 'template.xlsx');
+  return fs.readFileSync(filePath);
 }
 
 async function sendExcelViaLine(buffer, filename, toUserId) {
