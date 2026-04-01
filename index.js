@@ -377,7 +377,7 @@ app.post('/api/anomaly', async (req, res) => {
       '判定':         { rich_text: toText(d.judge || '') },
       '訂單數量':     { number: parseInt(d.qty) || null },
       '異常比例':     { rich_text: toText(d.ratio || '') },
-      '目前處理狀態': { rich_text: toText('未開始') },
+      '目前處理狀態': { rich_text: toText(d.status || '未開始') },
       '回報人':       { rich_text: toText(reporterName) },
     };
     if (d.replyDate) properties['需求回覆時間'] = { date: { start: d.replyDate } };
