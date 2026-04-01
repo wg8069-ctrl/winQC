@@ -380,7 +380,7 @@ app.post('/api/anomaly', async (req, res) => {
       '目前處理狀態': { rich_text: toText(d.status || '未開始') },
       '回報人':       { rich_text: toText(reporterName) },
     };
-    if (d.replyDate) properties['需求回覆時間'] = { date: { start: d.replyDate } };
+    if (d.replyDate) properties['需求回覆時間'] = { rich_text: [{ text: { content: d.replyDate } }] };
     if (photoUrl)    properties['異常照片']  = { url: photoUrl };
     if (photoUrl2)   properties['異常照片2'] = { url: photoUrl2 };
 
