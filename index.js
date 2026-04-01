@@ -372,6 +372,7 @@ app.post('/api/anomaly', async (req, res) => {
       '發生單位':     { rich_text: toText(d.unit || '') },
       '責任單位':     { rich_text: toText(d.resp || '') },
       '客戶':         { rich_text: toText(d.customer || '') },
+      '單號':           { rich_text: toText(d.orderNo || '') },
       '系列別':       { rich_text: toText(d.series || '') },
       '零件名稱':     { rich_text: toText(d.product || '') },
       '異常狀況':     { rich_text: toText(d.anomaly || '') },
