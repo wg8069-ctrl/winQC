@@ -23,6 +23,7 @@ const LINE_CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
 const NOTION_TOKEN              = process.env.NOTION_TOKEN;
 const NOTION_DATABASE_ID        = process.env.NOTION_DATABASE_ID;
 const NOTIFY_USERS              = (process.env.NOTIFY_USERS || '').split(',').filter(Boolean);
+const EXCEL_NOTIFY_USERS        = (process.env.EXCEL_NOTIFY_USERS || '').split(',').filter(Boolean);
 const CLOUDINARY_CLOUD          = 'dlpxz4qlh';
 const CLOUDINARY_KEY            = '953226455671951';
 const CLOUDINARY_SECRET         = process.env.CLOUDINARY_SECRET || 'Bx_qzmiTmGPtSoEPXYpJwvqLQoA';
@@ -330,7 +331,8 @@ async function generateAndSendExcel(data, wgNumber, reporterName, photoUrl, phot
 
     // 傳送 LINE 訊息給通知對象
     if (downloadUrl) {
-      for (const uid of NOTIFY_USERS) {
+      const targets = EXCEL_NOTIFY_USERS.length > 0 ? EXCEL_NOTIFY_USERS : NOTIFY_USERS;
+      for (const uid of targets) {
         await pushText(uid, `📋 品質異常通知單已產生！\n\n異常單號：${wgNumber}\n\n點擊下載 Excel：\n${downloadUrl}`)
           .catch(e => console.error('push excel link failed:', e.message));
       }
