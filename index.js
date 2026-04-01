@@ -17,7 +17,7 @@ app.use((req, res, next) => {
 });
 app.use(express.json({ limit: '10mb', verify: (req, res, buf) => { req.rawBody = buf; } }));
 
-// ── 環境變數 ──
+// â”€â”€ ç’°å¢ƒè®Šæ•¸ â”€â”€
 const LINE_CHANNEL_SECRET       = process.env.LINE_CHANNEL_SECRET;
 const LINE_CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
 const NOTION_TOKEN              = process.env.NOTION_TOKEN;
@@ -29,9 +29,9 @@ const CLOUDINARY_SECRET         = process.env.CLOUDINARY_SECRET || 'Bx_qzmiTmGPt
 
 const sessions = {};
 
-// ════════════════════════════════════════
-//  Helper 函式
-// ════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+//  Helper å‡½å¼
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 function verifySignature(req) {
   const sig  = req.headers['x-line-signature'];
   const hash = crypto.createHmac('sha256', LINE_CHANNEL_SECRET).update(req.rawBody).digest('base64');
@@ -43,8 +43,8 @@ async function getDisplayName(userId) {
     const r = await axios.get(`https://api.line.me/v2/bot/profile/${userId}`, {
       headers: { Authorization: `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}` }
     });
-    return r.data.displayName || '用戶';
-  } catch { return '用戶'; }
+    return r.data.displayName || 'ç”¨æˆ¶';
+  } catch { return 'ç”¨æˆ¶'; }
 }
 
 async function getImageUrl(messageId) {
@@ -84,11 +84,12 @@ async function replyFlex(replyToken) {
       replyToken,
       messages: [{
         type: 'text',
-        text: 'WinGun 異常通報 👇',
+        text: 'WinGun ç•°å¸¸é€šå ± ðŸ‘‡',
         quickReply: {
           items: [
-            { type: 'action', action: { type: 'uri', label: '📋 建立異常單', uri: 'https://liff.line.me/2009600334-UpN6esDu' } },
-            { type: 'action', action: { type: 'message', label: '🔍 查詢紀錄', text: '查詢' } }
+            { type: 'action', action: { type: 'uri', label: 'ðŸ“‹ å»ºç«‹ç•°å¸¸å–®', uri: 'https://liff.line.me/2009600334-UpN6esDu' } },
+            { type: 'action', action: { type: 'message', label: 'ðŸ” æŸ¥è©¢ç´€éŒ„', text: 'æŸ¥è©¢' } },
+            { type: 'action', action: { type: 'uri', label: 'ðŸ“Š ç•°å¸¸ç¸½è¡¨', uri: 'https://cream-scilla-479.notion.site/3281694680a7800f984dd246bd4e7904?v=3281694680a780e3b597000c7979345a' } }
           ]
         }
       }]
@@ -97,9 +98,9 @@ async function replyFlex(replyToken) {
   );
 }
 
-// ════════════════════════════════════════
-//  Bot 對話邏輯
-// ════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+//  Bot å°è©±é‚è¼¯
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 async function handleMessage(event) {
   const userId     = event.source?.userId;
   const replyToken = event.replyToken;
@@ -109,29 +110,29 @@ async function handleMessage(event) {
 
   let session = sessions[userId] || { step: 'idle', data: {} };
 
-  if (text === '0' || text === '選單' || text === 'menu') {
+  if (text === '0' || text === 'é¸å–®' || text === 'menu') {
     delete sessions[userId]; await replyFlex(replyToken); return;
   }
-  if (text === '重填' || text === '取消') {
+  if (text === 'é‡å¡«' || text === 'å–æ¶ˆ') {
     delete sessions[userId]; await replyFlex(replyToken); return;
   }
 
   if (session.step === 'idle') {
-    if (text === '查詢' || text === '查詢紀錄') {
+    if (text === 'æŸ¥è©¢' || text === 'æŸ¥è©¢ç´€éŒ„') {
       sessions[userId] = { step: 'search_pick', data: {} };
       await axios.post('https://api.line.me/v2/bot/message/reply',
         {
           replyToken,
           messages: [{
             type: 'text',
-            text: '🔍 請選擇查詢方式：',
+            text: 'ðŸ” è«‹é¸æ“‡æŸ¥è©¢æ–¹å¼ï¼š',
             quickReply: {
               items: [
-                { type: 'action', action: { type: 'message', label: '🔩 零件名稱', text: 'search:零件名稱' } },
-                { type: 'action', action: { type: 'message', label: '📋 異常單號', text: 'search:異常單號' } },
-                { type: 'action', action: { type: 'message', label: '🏭 發生單位', text: 'search:發生單位' } },
-                { type: 'action', action: { type: 'message', label: '👤 回報人',   text: 'search:回報人'   } },
-                { type: 'action', action: { type: 'message', label: '⚠️ 異常狀況', text: 'search:異常狀況' } },
+                { type: 'action', action: { type: 'message', label: 'ðŸ”© é›¶ä»¶åç¨±', text: 'search:é›¶ä»¶åç¨±' } },
+                { type: 'action', action: { type: 'message', label: 'ðŸ“‹ ç•°å¸¸å–®è™Ÿ', text: 'search:ç•°å¸¸å–®è™Ÿ' } },
+                { type: 'action', action: { type: 'message', label: 'ðŸ­ ç™¼ç”Ÿå–®ä½', text: 'search:ç™¼ç”Ÿå–®ä½' } },
+                { type: 'action', action: { type: 'message', label: 'ðŸ‘¤ å›žå ±äºº',   text: 'search:å›žå ±äºº'   } },
+                { type: 'action', action: { type: 'message', label: 'âš ï¸ ç•°å¸¸ç‹€æ³', text: 'search:ç•°å¸¸ç‹€æ³' } },
               ]
             }
           }]
@@ -149,29 +150,29 @@ async function handleMessage(event) {
       const field = text.replace('search:', '');
       sessions[userId] = { step: 'search_keyword', data: { field } };
       const fieldLabels = {
-        '零件名稱': '零件名稱（例如：WC4-795B）',
-        '異常單號': '異常單號（例如：WG20260326）',
-        '發生單位': '發生單位（例如：本廠）',
-        '回報人':   '回報人姓名',
-        '異常狀況': '異常狀況關鍵字',
+        'é›¶ä»¶åç¨±': 'é›¶ä»¶åç¨±ï¼ˆä¾‹å¦‚ï¼šWC4-795Bï¼‰',
+        'ç•°å¸¸å–®è™Ÿ': 'ç•°å¸¸å–®è™Ÿï¼ˆä¾‹å¦‚ï¼šWG20260326ï¼‰',
+        'ç™¼ç”Ÿå–®ä½': 'ç™¼ç”Ÿå–®ä½ï¼ˆä¾‹å¦‚ï¼šæœ¬å» ï¼‰',
+        'å›žå ±äºº':   'å›žå ±äººå§“å',
+        'ç•°å¸¸ç‹€æ³': 'ç•°å¸¸ç‹€æ³é—œéµå­—',
       };
-      await replyText(replyToken, `🔍 查詢 ${field}\n\n請輸入${fieldLabels[field] || '關鍵字'}：\n\n輸入「0」回主選單`);
+      await replyText(replyToken, `ðŸ” æŸ¥è©¢ ${field}\n\nè«‹è¼¸å…¥${fieldLabels[field] || 'é—œéµå­—'}ï¼š\n\nè¼¸å…¥ã€Œ0ã€å›žä¸»é¸å–®`);
     } else {
-      await replyText(replyToken, '請點選上方按鈕選擇查詢方式\n\n輸入「0」回主選單');
+      await replyText(replyToken, 'è«‹é»žé¸ä¸Šæ–¹æŒ‰éˆ•é¸æ“‡æŸ¥è©¢æ–¹å¼\n\nè¼¸å…¥ã€Œ0ã€å›žä¸»é¸å–®');
     }
     return;
   }
 
   if (session.step === 'search_keyword') {
-    if (!text) { await replyText(replyToken, '請輸入關鍵字'); return; }
+    if (!text) { await replyText(replyToken, 'è«‹è¼¸å…¥é—œéµå­—'); return; }
     const field = session.data.field;
     try {
-      const filter = field === '異常單號'
-        ? { property: '異常單號', title: { contains: text } }
+      const filter = field === 'ç•°å¸¸å–®è™Ÿ'
+        ? { property: 'ç•°å¸¸å–®è™Ÿ', title: { contains: text } }
         : { property: field, rich_text: { contains: text } };
       const res = await axios.post(
         `https://api.notion.com/v1/databases/${NOTION_DATABASE_ID}/query`,
-        { filter, sorts: [{ property: '發生日期', direction: 'descending' }], page_size: 5 },
+        { filter, sorts: [{ property: 'ç™¼ç”Ÿæ—¥æœŸ', direction: 'descending' }], page_size: 5 },
         { headers: { Authorization: `Bearer ${NOTION_TOKEN}`, 'Notion-Version': '2022-06-28', 'Content-Type': 'application/json' } }
       );
       const results = res.data.results.map(p => {
@@ -180,41 +181,41 @@ async function handleMessage(event) {
         const getDate = (k) => props[k]?.date?.start?.slice(0,10) || '';
         const getUrl  = (k) => props[k]?.url || '';
         return {
-          num:      getText('異常單號'),
-          date:     getDate('發生日期'),
-          unit:     getText('發生單位'),
-          part:     getText('零件名稱'),
-          series:   getText('系列別'),
-          issue:    getText('異常狀況'),
-          ratio:    getText('異常比例'),
-          judge:    getText('判定'),
-          status:   getText('目前處理狀態'),
-          reporter: getText('回報人'),
-          photo:    getUrl('異常照片'),
+          num:      getText('ç•°å¸¸å–®è™Ÿ'),
+          date:     getDate('ç™¼ç”Ÿæ—¥æœŸ'),
+          unit:     getText('ç™¼ç”Ÿå–®ä½'),
+          part:     getText('é›¶ä»¶åç¨±'),
+          series:   getText('ç³»åˆ—åˆ¥'),
+          issue:    getText('ç•°å¸¸ç‹€æ³'),
+          ratio:    getText('ç•°å¸¸æ¯”ä¾‹'),
+          judge:    getText('åˆ¤å®š'),
+          status:   getText('ç›®å‰è™•ç†ç‹€æ…‹'),
+          reporter: getText('å›žå ±äºº'),
+          photo:    getUrl('ç•°å¸¸ç…§ç‰‡'),
         };
       });
       if (results.length === 0) {
-        await replyText(replyToken, `🔍 查無「${text}」相關紀錄\n\n輸入「0」回主選單`);
+        await replyText(replyToken, `ðŸ” æŸ¥ç„¡ã€Œ${text}ã€ç›¸é—œç´€éŒ„\n\nè¼¸å…¥ã€Œ0ã€å›žä¸»é¸å–®`);
       } else {
-        const lines = [`🔍 找到 ${res.data.results.length} 筆「${text}」紀錄：\n`];
+        const lines = [`ðŸ” æ‰¾åˆ° ${res.data.results.length} ç­†ã€Œ${text}ã€ç´€éŒ„ï¼š\n`];
         results.forEach((r, i) => {
-          const judgeEmoji = r.judge.includes('驗退') ? '❌' : r.judge.includes('特採') ? '⚠️' : r.judge.includes('加工') ? '🔧' : '🔘';
+          const judgeEmoji = r.judge.includes('é©—é€€') ? 'âŒ' : r.judge.includes('ç‰¹æŽ¡') ? 'âš ï¸' : r.judge.includes('åŠ å·¥') ? 'ðŸ”§' : 'ðŸ”˜';
           lines.push(
             `${i+1}. ${r.num} ${r.date}\n` +
-            `   🏭 ${r.unit}　👤 ${r.reporter}\n` +
-            `   🔩 ${r.part}　📂 ${r.series}\n` +
-            `   ⚠️ ${r.issue}\n` +
-            `   📊 ${r.ratio}　${judgeEmoji} ${r.judge}` +
-            (r.photo ? `\n   📷 ${r.photo}` : '')
+            `   ðŸ­ ${r.unit}ã€€ðŸ‘¤ ${r.reporter}\n` +
+            `   ðŸ”© ${r.part}ã€€ðŸ“‚ ${r.series}\n` +
+            `   âš ï¸ ${r.issue}\n` +
+            `   ðŸ“Š ${r.ratio}ã€€${judgeEmoji} ${r.judge}` +
+            (r.photo ? `\n   ðŸ“· ${r.photo}` : '')
           );
         });
-        if (res.data.has_more) lines.push(`\n...僅顯示前 5 筆`);
-        lines.push('\n輸入「0」回主選單');
+        if (res.data.has_more) lines.push(`\n...åƒ…é¡¯ç¤ºå‰ 5 ç­†`);
+        lines.push('\nè¼¸å…¥ã€Œ0ã€å›žä¸»é¸å–®');
         await replyText(replyToken, lines.join('\n'));
       }
     } catch (err) {
       console.error(err.response?.data || err.message);
-      await replyText(replyToken, '❌ 查詢失敗，請通知管理員');
+      await replyText(replyToken, 'âŒ æŸ¥è©¢å¤±æ•—ï¼Œè«‹é€šçŸ¥ç®¡ç†å“¡');
     }
     delete sessions[userId];
     return;
@@ -223,9 +224,9 @@ async function handleMessage(event) {
   await replyFlex(replyToken);
 }
 
-// ════════════════════════════════════════
-//  流水號
-// ════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+//  æµæ°´è™Ÿ
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 const dailyCounters = {};
 function genWGNumber() {
   const now = new Date();
@@ -235,9 +236,9 @@ function genWGNumber() {
   return `WG${y}${m}${d}${String(dailyCounters[key]).padStart(2,'0')}`;
 }
 
-// ════════════════════════════════════════
-//  Cloudinary 上傳圖片
-// ════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+//  Cloudinary ä¸Šå‚³åœ–ç‰‡
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 async function uploadToCloudinary(base64Data) {
   try {
     const timestamp = Math.floor(Date.now()/1000);
@@ -254,9 +255,9 @@ async function uploadToCloudinary(base64Data) {
   } catch (e) { console.error('Cloudinary image upload failed:', e.response?.data || e.message); return null; }
 }
 
-// ════════════════════════════════════════
-//  Cloudinary 上傳 Excel (raw)
-// ════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+//  Cloudinary ä¸Šå‚³ Excel (raw)
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 async function uploadExcelToCloudinary(buffer, filename) {
   try {
     const timestamp = Math.floor(Date.now()/1000);
@@ -274,9 +275,9 @@ async function uploadExcelToCloudinary(buffer, filename) {
   } catch (e) { console.error('Cloudinary excel upload failed:', e.response?.data || e.message); return null; }
 }
 
-// ════════════════════════════════════════
-//  產生 Excel 並傳送 LINE
-// ════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+//  ç”¢ç”Ÿ Excel ä¸¦å‚³é€ LINE
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 async function generateAndSendExcel(data, wgNumber, reporterName, photoUrl, photoUrl2) {
   try {
     const templatePath = path.join(__dirname, 'template.xlsx');
@@ -284,7 +285,7 @@ async function generateAndSendExcel(data, wgNumber, reporterName, photoUrl, phot
     await workbook.xlsx.readFile(templatePath);
     const ws = workbook.worksheets[0];
 
-    // 填入儲存格
+    // å¡«å…¥å„²å­˜æ ¼
     const setCell = (addr, val) => { try { ws.getCell(addr).value = val; } catch(e) {} };
     setCell('C2', wgNumber);
     setCell('D2', data.replyDate || '');
@@ -300,7 +301,7 @@ async function generateAndSendExcel(data, wgNumber, reporterName, photoUrl, phot
     setCell('K4', data.judge || '');
     setCell('L4', reporterName);
 
-    // 嵌入照片
+    // åµŒå…¥ç…§ç‰‡
     const fetchBuf = (url) => new Promise((resolve) => {
       const mod = url.startsWith('https') ? require('https') : require('http');
       mod.get(url, (res) => {
@@ -324,13 +325,13 @@ async function generateAndSendExcel(data, wgNumber, reporterName, photoUrl, phot
     const buffer   = await workbook.xlsx.writeBuffer();
     const filename = `${wgNumber}.xlsx`;
 
-    // 上傳到 Cloudinary
+    // ä¸Šå‚³åˆ° Cloudinary
     const downloadUrl = await uploadExcelToCloudinary(buffer, filename);
 
-    // 傳送 LINE 訊息給通知對象
+    // å‚³é€ LINE è¨Šæ¯çµ¦é€šçŸ¥å°è±¡
     if (downloadUrl) {
       for (const uid of NOTIFY_USERS) {
-        await pushText(uid, `📋 品質異常通知單已產生！\n\n異常單號：${wgNumber}\n\n點擊下載 Excel：\n${downloadUrl}`)
+        await pushText(uid, `ðŸ“‹ å“è³ªç•°å¸¸é€šçŸ¥å–®å·²ç”¢ç”Ÿï¼\n\nç•°å¸¸å–®è™Ÿï¼š${wgNumber}\n\né»žæ“Šä¸‹è¼‰ Excelï¼š\n${downloadUrl}`)
           .catch(e => console.error('push excel link failed:', e.message));
       }
     }
@@ -342,46 +343,46 @@ async function generateAndSendExcel(data, wgNumber, reporterName, photoUrl, phot
   }
 }
 
-// ════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 //  API Routes
-// ════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
-// LIFF 表單提交
+// LIFF è¡¨å–®æäº¤
 app.post('/api/anomaly', async (req, res) => {
   try {
     const d = req.body;
-    let reporterName = '(未知)';
+    let reporterName = '(æœªçŸ¥)';
     console.log('anomaly submitted by userId:', d.userId || '(no userId)');
     if (d.userId) reporterName = await getDisplayName(d.userId);
 
     const wgNumber = genWGNumber();
 
-    // 上傳照片
+    // ä¸Šå‚³ç…§ç‰‡
     let photoUrl = null, photoUrl2 = null;
     if (d.photoData)  photoUrl  = await uploadToCloudinary(d.photoData);
     if (d.photoData2) photoUrl2 = await uploadToCloudinary(d.photoData2);
 
-    // 寫入 Notion
+    // å¯«å…¥ Notion
     const toText = (v) => [{ text: { content: v ? String(v) : '' } }];
     const properties = {
-      '異常單號':     { title: [{ text: { content: wgNumber } }] },
-      '發生日期':     { date: { start: new Date().toISOString().split('T')[0] } },
-      '發生單位':     { rich_text: toText(d.unit || '') },
-      '責任單位':     { rich_text: toText(d.resp || '') },
-      '客戶':         { rich_text: toText(d.customer || '') },
-      '系列別':       { rich_text: toText(d.series || '') },
-      '零件名稱':     { rich_text: toText(d.product || '') },
-      '異常狀況':     { rich_text: toText(d.anomaly || '') },
-      '處理方式':     { rich_text: toText(d.judge || '') },
-      '判定':         { rich_text: toText(d.judge || '') },
-      '訂單數量':     { number: parseInt(d.qty) || null },
-      '異常比例':     { rich_text: toText(d.ratio || '') },
-      '目前處理狀態': { rich_text: toText('未開始') },
-      '回報人':       { rich_text: toText(reporterName) },
+      'ç•°å¸¸å–®è™Ÿ':     { title: [{ text: { content: wgNumber } }] },
+      'ç™¼ç”Ÿæ—¥æœŸ':     { date: { start: new Date().toISOString().split('T')[0] } },
+      'ç™¼ç”Ÿå–®ä½':     { rich_text: toText(d.unit || '') },
+      'è²¬ä»»å–®ä½':     { rich_text: toText(d.resp || '') },
+      'å®¢æˆ¶':         { rich_text: toText(d.customer || '') },
+      'ç³»åˆ—åˆ¥':       { rich_text: toText(d.series || '') },
+      'é›¶ä»¶åç¨±':     { rich_text: toText(d.product || '') },
+      'ç•°å¸¸ç‹€æ³':     { rich_text: toText(d.anomaly || '') },
+      'è™•ç†æ–¹å¼':     { rich_text: toText(d.judge || '') },
+      'åˆ¤å®š':         { rich_text: toText(d.judge || '') },
+      'è¨‚å–®æ•¸é‡':     { number: parseInt(d.qty) || null },
+      'ç•°å¸¸æ¯”ä¾‹':     { rich_text: toText(d.ratio || '') },
+      'ç›®å‰è™•ç†ç‹€æ…‹': { rich_text: toText('æœªé–‹å§‹') },
+      'å›žå ±äºº':       { rich_text: toText(reporterName) },
     };
-    if (d.replyDate) properties['需求回覆時間'] = { date: { start: d.replyDate } };
-    if (photoUrl)    properties['異常照片']  = { url: photoUrl };
-    if (photoUrl2)   properties['異常照片2'] = { url: photoUrl2 };
+    if (d.replyDate) properties['éœ€æ±‚å›žè¦†æ™‚é–“'] = { date: { start: d.replyDate } };
+    if (photoUrl)    properties['ç•°å¸¸ç…§ç‰‡']  = { url: photoUrl };
+    if (photoUrl2)   properties['ç•°å¸¸ç…§ç‰‡2'] = { url: photoUrl2 };
 
     const pageBody = { parent: { database_id: NOTION_DATABASE_ID }, properties };
     if (photoUrl || photoUrl2) {
@@ -393,27 +394,27 @@ app.post('/api/anomaly', async (req, res) => {
       headers: { Authorization: `Bearer ${NOTION_TOKEN}`, 'Notion-Version': '2022-06-28', 'Content-Type': 'application/json' }
     });
 
-    // 推播異常通知
-    const judgeEmoji = d.judge === '驗退X' ? '❌' : d.judge === '特採△' ? '⚠️' : '🔧';
+    // æŽ¨æ’­ç•°å¸¸é€šçŸ¥
+    const judgeEmoji = d.judge === 'é©—é€€X' ? 'âŒ' : d.judge === 'ç‰¹æŽ¡â–³' ? 'âš ï¸' : 'ðŸ”§';
     const msg =
-      `【異常通報 ${wgNumber}】\n` +
-      `👤 回報人：${reporterName}\n` +
-      `📦 品名：${d.product || '(未填)'}　系列：${d.series || ''}\n` +
-      `📍 發生單位：${d.unit}\n` +
-      `🏭 責任單位：${d.resp}\n` +
-      `⚠️ 異常：${d.anomaly}\n` +
-      `🔢 訂單數量：${d.qty}　比例：${d.ratio}\n` +
-      `${judgeEmoji} 判定：${d.judge}\n` +
-      `📅 日期：${d.date}` +
-      (d.replyDate ? `\n📆 回覆期限：${d.replyDate}` : '') +
-      (photoUrl  ? `\n📷 照片1：${photoUrl}`  : '') +
-      (photoUrl2 ? `\n📷 照片2：${photoUrl2}` : '');
+      `ã€ç•°å¸¸é€šå ± ${wgNumber}ã€‘\n` +
+      `ðŸ‘¤ å›žå ±äººï¼š${reporterName}\n` +
+      `ðŸ“¦ å“åï¼š${d.product || '(æœªå¡«)'}ã€€ç³»åˆ—ï¼š${d.series || ''}\n` +
+      `ðŸ“ ç™¼ç”Ÿå–®ä½ï¼š${d.unit}\n` +
+      `ðŸ­ è²¬ä»»å–®ä½ï¼š${d.resp}\n` +
+      `âš ï¸ ç•°å¸¸ï¼š${d.anomaly}\n` +
+      `ðŸ”¢ è¨‚å–®æ•¸é‡ï¼š${d.qty}ã€€æ¯”ä¾‹ï¼š${d.ratio}\n` +
+      `${judgeEmoji} åˆ¤å®šï¼š${d.judge}\n` +
+      `ðŸ“… æ—¥æœŸï¼š${d.date}` +
+      (d.replyDate ? `\nðŸ“† å›žè¦†æœŸé™ï¼š${d.replyDate}` : '') +
+      (photoUrl  ? `\nðŸ“· ç…§ç‰‡1ï¼š${photoUrl}`  : '') +
+      (photoUrl2 ? `\nðŸ“· ç…§ç‰‡2ï¼š${photoUrl2}` : '');
 
     for (const uid of NOTIFY_USERS) {
       await pushText(uid, msg).catch(e => console.error('push failed:', e.message));
     }
 
-    // 非同步產生 Excel 並傳送下載連結
+    // éžåŒæ­¥ç”¢ç”Ÿ Excel ä¸¦å‚³é€ä¸‹è¼‰é€£çµ
     generateAndSendExcel(d, wgNumber, reporterName, photoUrl, photoUrl2)
       .then(({ downloadUrl }) => {
         if (downloadUrl) console.log('Excel uploaded:', downloadUrl);
@@ -437,7 +438,7 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-app.get('/', (req, res) => res.json({ status: 'LINE Bot running ✅', routes: ['/api/anomaly', '/webhook'] }));
+app.get('/', (req, res) => res.json({ status: 'LINE Bot running âœ…', routes: ['/api/anomaly', '/webhook'] }));
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Bot started on port ${PORT}`));
