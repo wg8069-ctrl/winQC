@@ -176,7 +176,7 @@ async function handleMessage(event) {
       console.log('filter:', JSON.stringify(filter));
       const res = await axios.post(
         `https://api.notion.com/v1/databases/${NOTION_DATABASE_ID}/query`,
-        { filter, sorts: [{ property: '發生日期', direction: 'descending' }], page_size: 5 },
+        { filter, page_size: 5 },
         { headers: { Authorization: `Bearer ${NOTION_TOKEN}`, 'Notion-Version': '2025-09-03', 'Content-Type': 'application/json' } }
       );
       const results = res.data.results.map(p => {
