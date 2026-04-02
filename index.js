@@ -188,7 +188,7 @@ async function handleMessage(event) {
       const res = await axios.post(
         `https://api.notion.com/v1/databases/${dbId}/query`,
         { filter, page_size: 5 },
-        { headers: { Authorization: `Bearer ${NOTION_TOKEN}`, 'Notion-Version': '2025-09-03', 'Content-Type': 'application/json' } }
+        { headers: { Authorization: `Bearer ${NOTION_TOKEN}`, 'Notion-Version': '2022-06-28', 'Content-Type': 'application/json' } }
       );
 
       const results = res.data.results.map(p => {
@@ -411,8 +411,8 @@ app.post('/api/anomaly', async (req, res) => {
       '回報人':       { rich_text: toText(reporterName) },
     };
     if (d.replyDate) properties['需求回覆時間'] = { rich_text: [{ text: { content: d.replyDate } }] };
-    if (photoUrl)    properties['異常照片']  = { files: [{ name: 'photo1', type: 'external', external: { url: photoUrl } }] };
-    if (photoUrl2)   properties['異常照片2'] = { files: [{ name: 'photo2', type: 'external', external: { url: photoUrl2 } }] };
+    if (photoUrl)    properties['異常照片']  = { url: photoUrl };
+    if (photoUrl2)   properties['異常照片2'] = { url: photoUrl2 };
 
     const pageBody = { parent: { database_id: NOTION_DATABASE_ID }, properties };
     if (photoUrl || photoUrl2) {
