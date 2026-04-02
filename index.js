@@ -170,6 +170,8 @@ async function handleMessage(event) {
     try {
       const filter = field === '異常單號'
         ? { property: '異常單號', title: { contains: text } }
+        : field === '回報人'
+        ? { property: '回報人', rich_text: { contains: text } }
         : { property: field, rich_text: { contains: text } };
       const res = await axios.post(
         `https://api.notion.com/v1/databases/${NOTION_DATABASE_ID}/query`,
@@ -178,9 +180,11 @@ async function handleMessage(event) {
       );
       const results = res.data.results.map(p => {
         const props   = p.properties;
-        const getText = (k) => props[k]?.rich_text?.[0]?.text?.content || props[k]?.title?.[0]?.text?.content || '';
-        const getDate = (k) => props[k]?.date?.start?.slice(0,10) || '';
-        const getUrl  = (k) => props[k]?.url || '';
+        const getText  = (k) => props[k]?.rich_text?.[0]?.text?.content || props[k]?.title?.[0]?.plain_text || props[k]?.title?.[0]?.text?.content || '';
+        const getDate  = (k) => props[k]?.date?.start?.slice(0,10) || '';
+        const getUrl   = (k) => props[k]?.url || '';
+        const getStatus = (k) => props[k]?.status?.name || props[k]?.select?.name || getText(k) || '';
+        const getNum   = (k) => props[k]?.number != null ? String(props[k].number) : '';
         return {
           num:      getText('異常單號'),
           date:     getDate('發生日期'),
@@ -190,7 +194,7 @@ async function handleMessage(event) {
           issue:    getText('異常狀況'),
           ratio:    getText('異常比例'),
           judge:    getText('判定'),
-          status:   getText('目前處理狀態'),
+          status:   getStatus('狀態') || getText('目前處理狀態'),
           reporter: getText('回報人'),
           photo:    getUrl('異常照片'),
         };
