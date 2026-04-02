@@ -171,7 +171,6 @@ async function handleMessage(event) {
       const filter = field === '異常單號'
         ? { property: '異常單號', title: { contains: text } }
         : { property: field, rich_text: { contains: text } };
-      console.log('Query DB:', NOTION_DATABASE_ID);
       const res = await axios.post(
         `https://api.notion.com/v1/databases/${NOTION_DATABASE_ID}/query`,
         { filter, sorts: [{ property: '發生日期', direction: 'descending' }], page_size: 5 },
@@ -393,7 +392,6 @@ app.post('/api/anomaly', async (req, res) => {
       if (photoUrl)  pageBody.children.push({ object:'block', type:'image', image:{ type:'external', external:{ url: photoUrl  } } });
       if (photoUrl2) pageBody.children.push({ object:'block', type:'image', image:{ type:'external', external:{ url: photoUrl2 } } });
     }
-    console.log('Writing to DB:', NOTION_DATABASE_ID);
     await axios.post('https://api.notion.com/v1/pages', pageBody, {
       headers: { Authorization: `Bearer ${NOTION_TOKEN}`, 'Notion-Version': '2022-06-28', 'Content-Type': 'application/json' }
     });
