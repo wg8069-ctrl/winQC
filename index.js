@@ -376,7 +376,6 @@ app.post('/api/anomaly', async (req, res) => {
       '系列別':       { rich_text: toText(d.series || '') },
       '零件名稱':     { rich_text: toText(d.product || '') },
       '異常狀況':     { rich_text: toText(d.anomaly || '') },
-      '處理方式':     { rich_text: toText(d.judge || '') },
       '判定':         { rich_text: toText(d.judge || '') },
       '訂單數量':     { number: parseInt(d.qty) || null },
       '異常比例':     { rich_text: toText(d.ratio || '') },
@@ -394,7 +393,7 @@ app.post('/api/anomaly', async (req, res) => {
       if (photoUrl2) pageBody.children.push({ object:'block', type:'image', image:{ type:'external', external:{ url: photoUrl2 } } });
     }
     await axios.post('https://api.notion.com/v1/pages', pageBody, {
-      headers: { Authorization: `Bearer ${NOTION_TOKEN}`, 'Notion-Version': '2025-09-03', 'Content-Type': 'application/json' }
+      headers: { Authorization: `Bearer ${NOTION_TOKEN}`, 'Notion-Version': '2022-06-28', 'Content-Type': 'application/json' }
     });
 
     // 推播異常通知
