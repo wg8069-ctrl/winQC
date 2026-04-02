@@ -392,6 +392,7 @@ app.post('/api/anomaly', async (req, res) => {
       if (photoUrl)  pageBody.children.push({ object:'block', type:'image', image:{ type:'external', external:{ url: photoUrl  } } });
       if (photoUrl2) pageBody.children.push({ object:'block', type:'image', image:{ type:'external', external:{ url: photoUrl2 } } });
     }
+    console.log('Writing to DB:', NOTION_DATABASE_ID);
     await axios.post('https://api.notion.com/v1/pages', pageBody, {
       headers: { Authorization: `Bearer ${NOTION_TOKEN}`, 'Notion-Version': '2022-06-28', 'Content-Type': 'application/json' }
     });
