@@ -174,7 +174,7 @@ async function handleMessage(event) {
       const res = await axios.post(
         `https://api.notion.com/v1/databases/${NOTION_DATABASE_ID}/query`,
         { filter, sorts: [{ property: '發生日期', direction: 'descending' }], page_size: 5 },
-        { headers: { Authorization: `Bearer ${NOTION_TOKEN}`, 'Notion-Version': '2022-06-28', 'Content-Type': 'application/json' } }
+        { headers: { Authorization: `Bearer ${NOTION_TOKEN}`, 'Notion-Version': '2025-09-03', 'Content-Type': 'application/json' } }
       );
       const results = res.data.results.map(p => {
         const props   = p.properties;
@@ -394,7 +394,7 @@ app.post('/api/anomaly', async (req, res) => {
       if (photoUrl2) pageBody.children.push({ object:'block', type:'image', image:{ type:'external', external:{ url: photoUrl2 } } });
     }
     await axios.post('https://api.notion.com/v1/pages', pageBody, {
-      headers: { Authorization: `Bearer ${NOTION_TOKEN}`, 'Notion-Version': '2022-06-28', 'Content-Type': 'application/json' }
+      headers: { Authorization: `Bearer ${NOTION_TOKEN}`, 'Notion-Version': '2025-09-03', 'Content-Type': 'application/json' }
     });
 
     // 推播異常通知
