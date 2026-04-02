@@ -163,9 +163,7 @@ async function handleMessage(event) {
 
 輸入「0」回主選單`);
     } else {
-      await replyText(replyToken, '請點選上方按鈕選擇查詢方式
-
-輸入「0」回主選單');
+      await replyText(replyToken, '請點選上方按鈕選擇查詢方式\n\n輸入「0」回主選單');
     }
     return;
   }
@@ -239,14 +237,12 @@ async function handleMessage(event) {
             `   🔘 ${r.status}　👤 ${r.reporter}`
           );
         });
-        if (res.data.has_more) lines.push(`
-...僅顯示前 5 筆`);
-        lines.push('
-輸入「0」回主選單');
-        await replyText(replyToken, lines.join('
-'));
+        if (res.data.has_more) lines.push('\n...僅顯示前 5 筆');
+        lines.push('\n輸入「0」回主選單');
+        await replyText(replyToken, lines.join('\n'));
       }
     } catch (err) {
+      console.error('search error full:', JSON.stringify(err.response?.data), 'url:', err.config?.url);
       console.error('search error:', err.response?.data || err.message);
       await replyText(replyToken, '❌ 查詢失敗，請通知管理員');
     }
@@ -415,8 +411,8 @@ app.post('/api/anomaly', async (req, res) => {
       '回報人':       { rich_text: toText(reporterName) },
     };
     if (d.replyDate) properties['需求回覆時間'] = { rich_text: [{ text: { content: d.replyDate } }] };
-    if (photoUrl)    properties['異常照片']  = { url: photoUrl };
-    if (photoUrl2)   properties['異常照片2'] = { url: photoUrl2 };
+    if (photoUrl)    properties['異常照片']  = { files: [{ name: 'photo1', type: 'external', external: { url: photoUrl } }] };
+    if (photoUrl2)   properties['異常照片2'] = { files: [{ name: 'photo2', type: 'external', external: { url: photoUrl2 } }] };
 
     const pageBody = { parent: { database_id: NOTION_DATABASE_ID }, properties };
     if (photoUrl || photoUrl2) {
