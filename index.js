@@ -151,11 +151,11 @@ async function handleMessage(event) {
       const field = text.replace('search:', '');
       sessions[userId] = { step: 'search_keyword', data: { field } };
       const hints = {
-        '零件名稱': '例如：WC4、601、307',
-        '異常單號': '例如：WG2026、040101',
-        '發生單位': '例如：一廠、品保、大元',
-        '回報人':   '例如：Evelyn、采',
-        '異常狀況': '例如：外觀、尺寸、來料',
+        '零件名稱': '例如：WC4、601、307。部分文字即可',
+        '異常單號': '例如：2026040101。部分文字即可',
+        '發生單位': '例如：一廠、品保、大元。部分文字即可',
+        '回報人':   '例如：琛。部分文字即可,
+        '異常狀況': '例如：外觀、尺寸、來料。部分文字即可',
       };
       await replyText(replyToken, `🔍 查詢【${field}】
 
