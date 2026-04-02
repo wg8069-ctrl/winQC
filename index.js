@@ -173,6 +173,7 @@ async function handleMessage(event) {
         : field === '回報人'
         ? { property: '回報人', rich_text: { contains: text } }
         : { property: field, rich_text: { contains: text } };
+      console.log('filter:', JSON.stringify(filter));
       const res = await axios.post(
         `https://api.notion.com/v1/databases/${NOTION_DATABASE_ID}/query`,
         { filter, sorts: [{ property: '發生日期', direction: 'descending' }], page_size: 5 },
