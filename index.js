@@ -150,16 +150,22 @@ async function handleMessage(event) {
     if (text && text.startsWith('search:')) {
       const field = text.replace('search:', '');
       sessions[userId] = { step: 'search_keyword', data: { field } };
-      const fieldLabels = {
-        '零件名稱': '零件名稱（例如：WC4-795B）',
-        '異常單號': '異常單號（例如：WG20260326）',
-        '發生單位': '發生單位（例如：本廠）',
-        '回報人':   '回報人姓名',
-        '異常狀況': '異常狀況關鍵字',
+      const hints = {
+        '零件名稱': '例如：WC4、601、307',
+        '異常單號': '例如：WG2026、040101',
+        '發生單位': '例如：一廠、品保、大元',
+        '回報人':   '例如：Evelyn、采',
+        '異常狀況': '例如：外觀、尺寸、來料',
       };
-      await replyText(replyToken, `🔍 查詢 ${field}\n\n請輸入${fieldLabels[field] || '關鍵字'}：\n\n輸入「0」回主選單`);
+      await replyText(replyToken, `🔍 查詢【${field}】
+
+輸入關鍵字（${hints[field] || '部分文字即可'}）：
+
+輸入「0」回主選單`);
     } else {
-      await replyText(replyToken, '請點選上方按鈕選擇查詢方式\n\n輸入「0」回主選單');
+      await replyText(replyToken, '請點選上方按鈕選擇查詢方式
+
+輸入「0」回主選單');
     }
     return;
   }
@@ -168,59 +174,80 @@ async function handleMessage(event) {
     if (!text) { await replyText(replyToken, '請輸入關鍵字'); return; }
     const field = session.data.field;
     try {
-      const filter = field === '異常單號'
-        ? { property: '異常單號', title: { contains: text } }
-        : field === '回報人'
-        ? { property: '回報人', rich_text: { contains: text } }
-        : { property: field, rich_text: { contains: text } };
-      console.log('filter:', JSON.stringify(filter));
+      // 組 filter
+      let filter;
+      if (field === '異常單號') {
+        filter = { property: '異常單號', title: { contains: text } };
+      } else {
+        filter = { property: field, rich_text: { contains: text } };
+      }
+
+      // DB ID 加上 hyphen 格式
+      const dbId = NOTION_DATABASE_ID.includes('-')
+        ? NOTION_DATABASE_ID
+        : NOTION_DATABASE_ID.replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, '$1-$2-$3-$4-$5');
+
       const res = await axios.post(
-        `https://api.notion.com/v1/databases/${NOTION_DATABASE_ID}/query`,
+        `https://api.notion.com/v1/databases/${dbId}/query`,
         { filter, page_size: 5 },
         { headers: { Authorization: `Bearer ${NOTION_TOKEN}`, 'Notion-Version': '2025-09-03', 'Content-Type': 'application/json' } }
       );
+
       const results = res.data.results.map(p => {
-        const props   = p.properties;
-        const getText  = (k) => props[k]?.rich_text?.[0]?.text?.content || props[k]?.title?.[0]?.plain_text || props[k]?.title?.[0]?.text?.content || '';
-        const getDate  = (k) => props[k]?.date?.start?.slice(0,10) || '';
-        const getUrl   = (k) => props[k]?.url || '';
-        const getStatus = (k) => props[k]?.status?.name || props[k]?.select?.name || getText(k) || '';
-        const getNum   = (k) => props[k]?.number != null ? String(props[k].number) : '';
+        const props = p.properties;
+        const t  = (k) => props[k]?.title?.[0]?.plain_text || props[k]?.title?.[0]?.text?.content || '';
+        const rt = (k) => props[k]?.rich_text?.[0]?.plain_text || props[k]?.rich_text?.[0]?.text?.content || '';
+        const dt = (k) => props[k]?.date?.start?.slice(0,10) || '';
+        const st = (k) => props[k]?.status?.name || props[k]?.select?.name || rt(k) || '';
+        const nm = (k) => props[k]?.number != null ? String(props[k].number) : '';
         return {
-          num:      getText('異常單號'),
-          date:     getDate('發生日期'),
-          unit:     getText('發生單位'),
-          part:     getText('零件名稱'),
-          series:   getText('系列別'),
-          issue:    getText('異常狀況'),
-          ratio:    getText('異常比例'),
-          judge:    getText('判定'),
-          status:   getStatus('狀態') || getText('目前處理狀態'),
-          reporter: getText('回報人'),
-          photo:    getUrl('異常照片'),
+          num:      t('異常單號'),
+          date:     dt('發生日期'),
+          unit:     rt('發生單位'),
+          resp:     rt('責任單位'),
+          part:     rt('零件名稱'),
+          series:   rt('系列別'),
+          issue:    rt('異常狀況'),
+          qty:      nm('訂單數量'),
+          ratio:    rt('異常比例'),
+          judge:    rt('判定'),
+          status:   st('狀態') || rt('目前處理狀態'),
+          reporter: rt('回報人'),
         };
       });
+
       if (results.length === 0) {
-        await replyText(replyToken, `🔍 查無「${text}」相關紀錄\n\n輸入「0」回主選單`);
+        await replyText(replyToken, `🔍 查無「${text}」相關紀錄
+
+輸入「0」回主選單`);
       } else {
-        const lines = [`🔍 找到 ${res.data.results.length} 筆「${text}」紀錄：\n`];
+        const lines = [`🔍 找到 ${results.length} 筆「${text}」紀錄：
+`];
         results.forEach((r, i) => {
-          const judgeEmoji = r.judge.includes('驗退') ? '❌' : r.judge.includes('特採') ? '⚠️' : r.judge.includes('加工') ? '🔧' : '🔘';
+          const je = r.judge.includes('驗退') ? '❌' : r.judge.includes('特採') ? '⚠️' : r.judge.includes('加工') ? '🔧' : '🔘';
           lines.push(
-            `${i+1}. ${r.num} ${r.date}\n` +
-            `   🏭 ${r.unit}　👤 ${r.reporter}\n` +
-            `   🔩 ${r.part}　📂 ${r.series}\n` +
-            `   ⚠️ ${r.issue}\n` +
-            `   📊 ${r.ratio}　${judgeEmoji} ${r.judge}` +
-            (r.photo ? `\n   📷 ${r.photo}` : '')
+            `${i+1}. ${r.num}　${r.date}
+` +
+            `   📍 ${r.unit}｜🏭 ${r.resp}
+` +
+            `   🔩 ${r.part}　📂 ${r.series}
+` +
+            `   ⚠️ ${r.issue}　🔢 ${r.qty}
+` +
+            `   📊 ${r.ratio}　${je} ${r.judge}
+` +
+            `   🔘 ${r.status}　👤 ${r.reporter}`
           );
         });
-        if (res.data.has_more) lines.push(`\n...僅顯示前 5 筆`);
-        lines.push('\n輸入「0」回主選單');
-        await replyText(replyToken, lines.join('\n'));
+        if (res.data.has_more) lines.push(`
+...僅顯示前 5 筆`);
+        lines.push('
+輸入「0」回主選單');
+        await replyText(replyToken, lines.join('
+'));
       }
     } catch (err) {
-      console.error(err.response?.data || err.message);
+      console.error('search error:', err.response?.data || err.message);
       await replyText(replyToken, '❌ 查詢失敗，請通知管理員');
     }
     delete sessions[userId];
