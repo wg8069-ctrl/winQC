@@ -407,8 +407,7 @@ app.post('/api/anomaly', async (req, res) => {
       '判定':         { rich_text: toText(d.judge || '') },
       '訂單數量':     { number: parseInt(d.qty) || null },
       '異常比例':     { rich_text: toText(d.ratioText || '') },
-      '不良數':       { number: parseInt(d.bad) || null },
-      '抽驗數':       { number: parseInt(d.samp) || null },
+      '不良數 / 抽驗數': { rich_text: toText(d.bad && d.samp ? `${d.bad} / ${d.samp}` : '') },
       '目前處理狀態': { rich_text: toText(d.status || '未開始') },
       '回報人':       { rich_text: toText(reporterName) },
     };
