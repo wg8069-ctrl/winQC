@@ -90,7 +90,7 @@ async function replyFlex(replyToken) {
           items: [
             { type: 'action', action: { type: 'uri', label: '📋 建立異常單', uri: 'https://liff.line.me/2009600334-UpN6esDu' } },
             { type: 'action', action: { type: 'message', label: '🔍 查詢紀錄', text: '查詢' } },
-            { type: 'action', action: { type: 'uri', label: '📊 異常總表', uri: 'https://cream-scilla-479.notion.site/3281694680a7800f984dd246bd4e7904?v=3281694680a780e3b597000c7979345a' } }
+            { type: 'action', action: { type: 'uri', label: '📊 異常總表', uri: 'https://cream-scilla-479.notion.site/3361694680a780818f79cc3b72653beb?v=3361694680a78063aba2000c3ab24962' } }
           ]
         }
       }]
