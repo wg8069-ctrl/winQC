@@ -30,6 +30,45 @@ const CLOUDINARY_SECRET         = process.env.CLOUDINARY_SECRET || 'Bx_qzmiTmGPt
 
 const sessions = {};
 
+// ── Google Sheets ──
+const { google } = require('googleapis');
+const SPREADSHEET_ID = process.env.GOOGLE_SHEET_ID || '1PDzqFlsjPgHJBhDsB8gwuu3_eRwJ6GS_uV2Sc6ZanXM';
+const SHEET_HEADERS = ['異常單號','發生日期','需求回覆時間','發生單位','責任單位','系列別','單號','零件名稱','異常狀況','訂單數量','異常比例','目前處理狀態','判定','回報人','異常照片','異常照片2'];
+
+async function getSheets(){
+  const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS || '{}');
+  const auth = new google.auth.GoogleAuth({ credentials, scopes: ['https://www.googleapis.com/auth/spreadsheets'] });
+  return google.sheets({ version: 'v4', auth });
+}
+
+async function ensureSheetHeader(){
+  try {
+    const sheets = await getSheets();
+    const res = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: 'Sheet1!A1:Z1' });
+    if(!res.data.values || !res.data.values[0] || res.data.values[0].length===0){
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: SPREADSHEET_ID, range: 'Sheet1!A1',
+        valueInputOption: 'RAW', requestBody: { values: [SHEET_HEADERS] }
+      });
+      console.log('Sheet header created');
+    }
+  } catch(e){ console.error('ensureSheetHeader failed:', e.message); }
+}
+
+async function appendToSheet(row){
+  try {
+    const sheets = await getSheets();
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: SPREADSHEET_ID, range: 'Sheet1!A1',
+      valueInputOption: 'RAW', insertDataOption: 'INSERT_ROWS',
+      requestBody: { values: [row] }
+    });
+    console.log('Sheet row appended');
+  } catch(e){ console.error('appendToSheet failed:', e.message); }
+}
+
+ensureSheetHeader();
+
 // ════════════════════════════════════════
 //  Helper 函式
 // ════════════════════════════════════════
@@ -424,6 +463,26 @@ app.post('/api/anomaly', async (req, res) => {
     await axios.post('https://api.notion.com/v1/pages', pageBody, {
       headers: { Authorization: `Bearer ${NOTION_TOKEN}`, 'Notion-Version': '2022-06-28', 'Content-Type': 'application/json' }
     });
+
+    // 寫入 Google Sheets（同步）
+    appendToSheet([
+      wgNumber,
+      new Date().toISOString().split('T')[0],
+      d.replyDate || '',
+      d.unit || '',
+      d.resp || '',
+      d.series || '',
+      d.orderNo || '',
+      d.product || '',
+      d.anomaly || '',
+      parseInt(d.qty) || '',
+      d.ratio || '',
+      d.status || '未開始',
+      d.judge || '',
+      reporterName,
+      photoUrl || '',
+      photoUrl2 || '',
+    ]);
 
     // 推播異常通知
     const judgeEmoji = d.judge === '驗退X' ? '❌' : d.judge === '特採△' ? '⚠️' : '🔧';
