@@ -562,6 +562,46 @@ app.post('/api/anomaly', async (req, res) => {
   }
 });
 
+// Google Sheets 匯出 Excel
+app.post('/api/generate-excel-from-sheet', async (req, res) => {
+  try {
+    const { data } = req.body;
+    if (!data) return res.status(400).json({ success: false, error: 'Missing data' });
+
+    const wgNumber   = data['異常單號'] || 'WG_UNKNOWN';
+    const reporterName = data['回報人'] || '';
+    const photoUrl   = data['異常照片'] || null;
+    const photoUrl2  = data['異常照片2'] || null;
+
+    // 對應欄位名稱
+    const mapped = {
+      date:        data['發生日期'] || '',
+      replyDate:   data['需求回覆時間'] || '',
+      unit:        data['發生單位'] || '',
+      resp:        data['責任單位'] || '',
+      customer:    data['客戶'] || '',
+      product:     data['零件名稱'] || '',
+      series:      data['系列別'] || '',
+      orderNo:     data['單號'] || '',
+      anomaly:     data['異常狀況'] || '',
+      qty:         data['訂單數量'] || '',
+      ratio:       data['異常比例'] || '',
+      judge:       data['判定'] || '',
+      status:      data['目前處理狀態'] || '',
+      laborPeople: data['人工成本(人)'] || '',
+      laborHours:  data['人工成本(時)'] || '',
+      adminPeople: data['行政成本(人)'] || '',
+      adminHours:  data['行政成本(時)'] || '',
+    };
+
+    const { downloadUrl } = await generateAndSendExcel(mapped, wgNumber, reporterName, photoUrl, photoUrl2);
+    res.json({ success: true, url: downloadUrl });
+  } catch (err) {
+    console.error('/api/generate-excel-from-sheet error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // Webhook
 app.post('/webhook', async (req, res) => {
   if (!verifySignature(req)) return res.status(401).send('Unauthorized');
