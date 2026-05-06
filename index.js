@@ -41,13 +41,25 @@ async function getSheets(){
   return google.sheets({ version: 'v4', auth });
 }
 
+let SHEET_NAME = null;
+
+async function getSheetName(){
+  if(SHEET_NAME) return SHEET_NAME;
+  const sheets = await getSheets();
+  const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
+  SHEET_NAME = meta.data.sheets[0].properties.title;
+  console.log('Sheet name:', SHEET_NAME);
+  return SHEET_NAME;
+}
+
 async function ensureSheetHeader(){
   try {
     const sheets = await getSheets();
-    const res = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: 'Sheet1!A1:Z1' });
+    const name = await getSheetName();
+    const res = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: `${name}!A1:Z1` });
     if(!res.data.values || !res.data.values[0] || res.data.values[0].length===0){
       await sheets.spreadsheets.values.update({
-        spreadsheetId: SPREADSHEET_ID, range: 'Sheet1!A1',
+        spreadsheetId: SPREADSHEET_ID, range: `${name}!A1`,
         valueInputOption: 'RAW', requestBody: { values: [SHEET_HEADERS] }
       });
       console.log('Sheet header created');
@@ -58,8 +70,9 @@ async function ensureSheetHeader(){
 async function appendToSheet(row){
   try {
     const sheets = await getSheets();
+    const name = await getSheetName();
     await sheets.spreadsheets.values.append({
-      spreadsheetId: SPREADSHEET_ID, range: 'Sheet1!A1',
+      spreadsheetId: SPREADSHEET_ID, range: `${name}!A1`,
       valueInputOption: 'RAW', insertDataOption: 'INSERT_ROWS',
       requestBody: { values: [row] }
     });
