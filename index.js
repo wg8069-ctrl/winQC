@@ -434,7 +434,7 @@ async function generateAndSendExcel(data, wgNumber, reporterName, photoUrl, phot
       '{{人工成本時}}':   data.laborHours || '',
       '{{行政成本人}}':   data.adminPeople || '',
       '{{行政成本時}}':   data.adminHours || '',
-      '{{所耗人力成本}}': data.laborCost || '',
+      '{{所耗人力成本}}': '',
       '{{異常照片}}':     photoUrl || '',
       '{{異常照片2}}':    photoUrl2 || '',
     };
