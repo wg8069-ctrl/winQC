@@ -67,16 +67,31 @@ async function ensureSheetHeader(){
   } catch(e){ console.error('ensureSheetHeader failed:', e.message); }
 }
 
-async function appendToSheet(row){
+async function appendToSheet(dataMap){
   try {
     const sheets = await getSheets();
     const name = await getSheetName();
+    // 讀取第一行標題
+    const headerRes = await sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID, range: `${name}!1:1`
+    });
+    const headers = (headerRes.data.values && headerRes.data.values[0]) ? headerRes.data.values[0] : [];
+    if(headers.length === 0){
+      // 沒有標題就先建立
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: SPREADSHEET_ID, range: `${name}!A1`,
+        valueInputOption: 'RAW', requestBody: { values: [SHEET_HEADERS] }
+      });
+      headers.push(...SHEET_HEADERS);
+    }
+    // 依照標題順序填入資料
+    const row = headers.map(function(h){ return dataMap[h] !== undefined ? dataMap[h] : ''; });
     await sheets.spreadsheets.values.append({
       spreadsheetId: SPREADSHEET_ID, range: `${name}!A1`,
       valueInputOption: 'RAW', insertDataOption: 'INSERT_ROWS',
       requestBody: { values: [row] }
     });
-    console.log('Sheet row appended');
+    console.log('Sheet row appended, columns:', headers.length);
   } catch(e){ console.error('appendToSheet failed:', e.message); }
 }
 
@@ -478,24 +493,24 @@ app.post('/api/anomaly', async (req, res) => {
     });
 
     // 寫入 Google Sheets（同步）
-    appendToSheet([
-      wgNumber,
-      new Date().toISOString().split('T')[0],
-      d.replyDate || '',
-      d.unit || '',
-      d.resp || '',
-      d.series || '',
-      d.orderNo || '',
-      d.product || '',
-      d.anomaly || '',
-      parseInt(d.qty) || '',
-      d.ratio || '',
-      d.status || '未開始',
-      d.judge || '',
-      reporterName,
-      photoUrl || '',
-      photoUrl2 || '',
-    ]);
+    appendToSheet({
+      '異常單號':     wgNumber,
+      '發生日期':     new Date().toISOString().split('T')[0],
+      '需求回覆時間': d.replyDate || '',
+      '發生單位':     d.unit || '',
+      '責任單位':     d.resp || '',
+      '系列別':       d.series || '',
+      '單號':         d.orderNo || '',
+      '零件名稱':     d.product || '',
+      '異常狀況':     d.anomaly || '',
+      '訂單數量':     parseInt(d.qty) || '',
+      '異常比例':     d.ratio || '',
+      '目前處理狀態': d.status || '未開始',
+      '判定':         d.judge || '',
+      '回報人':       reporterName,
+      '異常照片':     photoUrl || '',
+      '異常照片2':    photoUrl2 || '',
+    });
 
     // 推播異常通知
     const judgeEmoji = d.judge === '驗退X' ? '❌' : d.judge === '特採△' ? '⚠️' : '🔧';
