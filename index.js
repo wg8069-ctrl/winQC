@@ -383,6 +383,12 @@ async function uploadExcelToCloudinary(buffer, filename) {
 async function generateAndSendExcel(data, wgNumber, reporterName, photoUrl, photoUrl2) {
   try {
     const sheets = await getSheets();
+    const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS || '{}');
+    const auth = new google.auth.GoogleAuth({
+      credentials,
+      scopes: ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
+    });
+    const drive = google.drive({ version: 'v3', auth });
 
     // 1. 找到「異常單範本」分頁的 sheetId
     const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
@@ -390,25 +396,25 @@ async function generateAndSendExcel(data, wgNumber, reporterName, photoUrl, phot
     if (!templateSheet) throw new Error('找不到「異常單範本」分頁');
     const templateSheetId = templateSheet.properties.sheetId;
 
-    // 2. 複製範本分頁，建立新分頁
-    const newTitle = `output_${wgNumber}`;
-    const copyRes = await sheets.spreadsheets.sheets.copyTo({
-      spreadsheetId: SPREADSHEET_ID,
-      sheetId: templateSheetId,
-      requestBody: { destinationSpreadsheetId: SPREADSHEET_ID }
+    // 2. 複製「異常單範本」到全新的試算表
+    const copyRes = await drive.files.copy({
+      fileId: SPREADSHEET_ID,
+      requestBody: { name: `output_${wgNumber}` }
     });
-    const newSheetId = copyRes.data.sheetId;
+    const newSpreadsheetId = copyRes.data.id;
 
-    // 重新命名新分頁
-    await sheets.spreadsheets.batchUpdate({
-      spreadsheetId: SPREADSHEET_ID,
-      requestBody: { requests: [{ updateSheetProperties: {
-        properties: { sheetId: newSheetId, title: newTitle },
-        fields: 'title'
-      }}]}
-    });
+    // 3. 在新試算表裡只保留「異常單範本」分頁，刪除其他分頁
+    const newMeta = await sheets.spreadsheets.get({ spreadsheetId: newSpreadsheetId });
+    const newTemplateSheet = newMeta.data.sheets.find(s => s.properties.title === '異常單範本');
+    const otherSheets = newMeta.data.sheets.filter(s => s.properties.title !== '異常單範本');
+    if (otherSheets.length > 0) {
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: newSpreadsheetId,
+        requestBody: { requests: otherSheets.map(s => ({ deleteSheet: { sheetId: s.properties.sheetId } })) }
+      });
+    }
 
-    // 3. 讀取新分頁所有資料，替換 {{標記}}
+    // 4. 替換 {{標記}} 填入資料
     const dataMap = {
       '{{異常單號}}':     wgNumber,
       '{{需求回覆時間}}': data.replyDate || '',
@@ -434,7 +440,7 @@ async function generateAndSendExcel(data, wgNumber, reporterName, photoUrl, phot
     };
 
     const cellRes = await sheets.spreadsheets.values.get({
-      spreadsheetId: SPREADSHEET_ID, range: `${newTitle}!A1:Z100`
+      spreadsheetId: newSpreadsheetId, range: '異常單範本!A1:Z200'
     });
     const rows = cellRes.data.values || [];
     const updatedRows = rows.map(row => row.map(cell => {
@@ -444,34 +450,27 @@ async function generateAndSendExcel(data, wgNumber, reporterName, photoUrl, phot
     }));
 
     await sheets.spreadsheets.values.update({
-      spreadsheetId: SPREADSHEET_ID, range: `${newTitle}!A1`,
+      spreadsheetId: newSpreadsheetId, range: '異常單範本!A1',
       valueInputOption: 'RAW', requestBody: { values: updatedRows }
     });
 
-    // 4. 匯出成 xlsx
-    const { google: g2 } = require('googleapis');
-    const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS || '{}');
-    const auth = new g2.auth.GoogleAuth({ credentials, scopes: ['https://www.googleapis.com/auth/drive'] });
-    const drive = g2.drive({ version: 'v3', auth });
-
+    // 5. 匯出成 xlsx（只有一個分頁所以就是範本那頁）
     const exportRes = await drive.files.export({
-      fileId: SPREADSHEET_ID,
+      fileId: newSpreadsheetId,
       mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     }, { responseType: 'arraybuffer' });
 
     const buffer = Buffer.from(exportRes.data);
     const filename = `${wgNumber}.xlsx`;
 
-    // 5. 刪除暫時分頁
-    await sheets.spreadsheets.batchUpdate({
-      spreadsheetId: SPREADSHEET_ID,
-      requestBody: { requests: [{ deleteSheet: { sheetId: newSheetId } }] }
-    }).catch(e => console.error('delete sheet failed:', e.message));
+    // 6. 刪除暫時試算表
+    await drive.files.delete({ fileId: newSpreadsheetId })
+      .catch(e => console.error('delete temp sheet failed:', e.message));
 
-    // 6. 上傳到 Cloudinary
+    // 7. 上傳到 Cloudinary
     const downloadUrl = await uploadExcelToCloudinary(buffer, filename);
 
-    // 7. 傳送 LINE 訊息
+    // 8. 傳送 LINE 訊息
     if (downloadUrl) {
       const targets = EXCEL_NOTIFY_USERS.length > 0 ? EXCEL_NOTIFY_USERS : NOTIFY_USERS;
       for (const uid of targets) {
