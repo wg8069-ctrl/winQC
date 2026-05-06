@@ -37,7 +37,13 @@ const SHEET_HEADERS = ['異常單號','發生日期','需求回覆時間','發�
 
 async function getSheets(){
   const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS || '{}');
-  const auth = new google.auth.GoogleAuth({ credentials, scopes: ['https://www.googleapis.com/auth/spreadsheets'] });
+  const auth = new google.auth.GoogleAuth({
+    credentials,
+    scopes: [
+      'https://www.googleapis.com/auth/spreadsheets',
+      'https://www.googleapis.com/auth/drive'
+    ]
+  });
   return google.sheets({ version: 'v4', auth });
 }
 
@@ -376,55 +382,96 @@ async function uploadExcelToCloudinary(buffer, filename) {
 // ════════════════════════════════════════
 async function generateAndSendExcel(data, wgNumber, reporterName, photoUrl, photoUrl2) {
   try {
-    const templatePath = path.join(__dirname, 'template.xlsx');
-    const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.readFile(templatePath);
-    const ws = workbook.worksheets[0];
+    const sheets = await getSheets();
 
-    // 填入儲存格
-    const setCell = (addr, val) => { try { ws.getCell(addr).value = val; } catch(e) {} };
-    setCell('C2', wgNumber);
-    setCell('D2', data.replyDate || '');
-    setCell('A4', data.date || new Date().toISOString().split('T')[0]);
-    setCell('B4', data.unit || '');
-    setCell('C4', data.resp || '');
-    setCell('D4', data.customer || '');
-    setCell('E4', data.product || '');
-    setCell('F4', data.series || '');
-    setCell('G4', data.anomaly || '');
-    setCell('H4', parseInt(data.qty) || null);
-    setCell('J4', data.ratio || '');
-    setCell('K4', data.judge || '');
-    setCell('L4', reporterName);
+    // 1. 找到「異常單範本」分頁的 sheetId
+    const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
+    const templateSheet = meta.data.sheets.find(s => s.properties.title === '異常單範本');
+    if (!templateSheet) throw new Error('找不到「異常單範本」分頁');
+    const templateSheetId = templateSheet.properties.sheetId;
 
-    // 嵌入照片
-    const fetchBuf = (url) => new Promise((resolve) => {
-      const mod = url.startsWith('https') ? require('https') : require('http');
-      mod.get(url, (res) => {
-        const chunks = [];
-        res.on('data', c => chunks.push(c));
-        res.on('end', () => resolve(Buffer.concat(chunks)));
-        res.on('error', () => resolve(null));
-      }).on('error', () => resolve(null));
+    // 2. 複製範本分頁，建立新分頁
+    const newTitle = `output_${wgNumber}`;
+    const copyRes = await sheets.spreadsheets.sheets.copyTo({
+      spreadsheetId: SPREADSHEET_ID,
+      sheetId: templateSheetId,
+      requestBody: { destinationSpreadsheetId: SPREADSHEET_ID }
+    });
+    const newSheetId = copyRes.data.sheetId;
+
+    // 重新命名新分頁
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId: SPREADSHEET_ID,
+      requestBody: { requests: [{ updateSheetProperties: {
+        properties: { sheetId: newSheetId, title: newTitle },
+        fields: 'title'
+      }}]}
     });
 
-    for (const [url, col, row] of [[photoUrl, 0, 4], [photoUrl2, 6, 4]]) {
-      if (url) {
-        const imgBuf = await fetchBuf(url);
-        if (imgBuf) {
-          const imgId = workbook.addImage({ buffer: imgBuf, extension: 'jpeg' });
-          ws.addImage(imgId, { tl: { col, row }, ext: { width: 360, height: 360 } });
-        }
-      }
-    }
+    // 3. 讀取新分頁所有資料，替換 {{標記}}
+    const dataMap = {
+      '{{異常單號}}':     wgNumber,
+      '{{需求回覆時間}}': data.replyDate || '',
+      '{{發生日期}}':     data.date || new Date().toISOString().split('T')[0],
+      '{{發生單位}}':     data.unit || '',
+      '{{責任單位}}':     data.resp || '',
+      '{{客戶}}':         data.customer || '',
+      '{{零件名稱}}':     data.product || '',
+      '{{系列別}}':       data.series || '',
+      '{{單號}}':         data.orderNo || '',
+      '{{異常狀況}}':     data.anomaly || '',
+      '{{訂單數量}}':     data.qty || '',
+      '{{異常比例}}':     data.ratio || '',
+      '{{判定}}':         data.judge || '',
+      '{{回報人}}':       reporterName,
+      '{{人工成本人}}':   data.laborPeople || '',
+      '{{人工成本時}}':   data.laborHours || '',
+      '{{行政成本人}}':   data.adminPeople || '',
+      '{{行政成本時}}':   data.adminHours || '',
+      '{{所耗人力成本}}': data.laborCost || '',
+      '{{異常照片}}':     photoUrl || '',
+      '{{異常照片2}}':    photoUrl2 || '',
+    };
 
-    const buffer   = await workbook.xlsx.writeBuffer();
+    const cellRes = await sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID, range: `${newTitle}!A1:Z100`
+    });
+    const rows = cellRes.data.values || [];
+    const updatedRows = rows.map(row => row.map(cell => {
+      let val = String(cell || '');
+      Object.entries(dataMap).forEach(([k, v]) => { val = val.replace(k, v); });
+      return val;
+    }));
+
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SPREADSHEET_ID, range: `${newTitle}!A1`,
+      valueInputOption: 'RAW', requestBody: { values: updatedRows }
+    });
+
+    // 4. 匯出成 xlsx
+    const { google: g2 } = require('googleapis');
+    const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS || '{}');
+    const auth = new g2.auth.GoogleAuth({ credentials, scopes: ['https://www.googleapis.com/auth/drive'] });
+    const drive = g2.drive({ version: 'v3', auth });
+
+    const exportRes = await drive.files.export({
+      fileId: SPREADSHEET_ID,
+      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    }, { responseType: 'arraybuffer' });
+
+    const buffer = Buffer.from(exportRes.data);
     const filename = `${wgNumber}.xlsx`;
 
-    // 上傳到 Cloudinary
+    // 5. 刪除暫時分頁
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId: SPREADSHEET_ID,
+      requestBody: { requests: [{ deleteSheet: { sheetId: newSheetId } }] }
+    }).catch(e => console.error('delete sheet failed:', e.message));
+
+    // 6. 上傳到 Cloudinary
     const downloadUrl = await uploadExcelToCloudinary(buffer, filename);
 
-    // 傳送 LINE 訊息給通知對象
+    // 7. 傳送 LINE 訊息
     if (downloadUrl) {
       const targets = EXCEL_NOTIFY_USERS.length > 0 ? EXCEL_NOTIFY_USERS : NOTIFY_USERS;
       for (const uid of targets) {
@@ -508,6 +555,11 @@ app.post('/api/anomaly', async (req, res) => {
       '目前處理狀態': d.status || '未開始',
       '判定':         d.judge || '',
       '回報人':       reporterName,
+      '人工成本(人)': d.laborPeople || '',
+      '人工成本(時)': d.laborHours || '',
+      '行政成本(人)': d.adminPeople || '',
+      '行政成本(時)': d.adminHours || '',
+      '所耗人力成本': d.laborCost || '',
       '異常照片':     photoUrl || '',
       '異常照片2':    photoUrl2 || '',
     });
