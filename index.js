@@ -1,4 +1,4 @@
-// v4 - final
+// v5 - template.xlsx cell mapping fix
 const express = require('express');
 const crypto  = require('crypto');
 const axios   = require('axios');
@@ -33,7 +33,7 @@ const sessions = {};
 // ── Google Sheets ──
 const { google } = require('googleapis');
 const SPREADSHEET_ID = process.env.GOOGLE_SHEET_ID || '1PDzqFlsjPgHJBhDsB8gwuu3_eRwJ6GS_uV2Sc6ZanXM';
-const SHEET_HEADERS = ['異常單號','發生日期','需求回覆時間','發生單位','責任單位','系列別','單號','零件名稱','異常狀況','訂單數量','異常比例','目前處理狀態','判定','回報人','異常照片','異常照片2'];
+const SHEET_HEADERS = ['異常單號','發生日期','需求回覆時間','發生單位','責任單位','系列別','單號','零件名稱','異常狀況','訂單數量','異常比例','目前處理狀態','判定','回報人','人工成本(人)','人工成本(時)','行政成本(人)','行政成本(時)','所耗人力成本','異常標註內容','異常照片','異常照片2'];
 
 async function getSheets(){
   const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS || '{}');
@@ -77,20 +77,17 @@ async function appendToSheet(dataMap){
   try {
     const sheets = await getSheets();
     const name = await getSheetName();
-    // 讀取第一行標題
     const headerRes = await sheets.spreadsheets.values.get({
       spreadsheetId: SPREADSHEET_ID, range: `${name}!1:1`
     });
     const headers = (headerRes.data.values && headerRes.data.values[0]) ? headerRes.data.values[0] : [];
     if(headers.length === 0){
-      // 沒有標題就先建立
       await sheets.spreadsheets.values.update({
         spreadsheetId: SPREADSHEET_ID, range: `${name}!A1`,
         valueInputOption: 'RAW', requestBody: { values: [SHEET_HEADERS] }
       });
       headers.push(...SHEET_HEADERS);
     }
-    // 依照標題順序填入資料
     const row = headers.map(function(h){ return dataMap[h] !== undefined ? dataMap[h] : ''; });
     await sheets.spreadsheets.values.append({
       spreadsheetId: SPREADSHEET_ID, range: `${name}!A1`,
@@ -230,11 +227,7 @@ async function handleMessage(event) {
         '回報人':   '例如：琛。部分文字即可',
         '異常狀況': '例如：外觀、尺寸、來料。部分文字即可',
       };
-      await replyText(replyToken, `🔍 查詢【${field}】
-
-輸入關鍵字（${hints[field] || '部分文字即可'}）：
-
-輸入「0」回主選單`);
+      await replyText(replyToken, `🔍 查詢【${field}】\n\n輸入關鍵字（${hints[field] || '部分文字即可'}）：\n\n輸入「0」回主選單`);
     } else {
       await replyText(replyToken, '請點選上方按鈕選擇查詢方式\n\n輸入「0」回主選單');
     }
@@ -245,7 +238,6 @@ async function handleMessage(event) {
     if (!text) { await replyText(replyToken, '請輸入關鍵字'); return; }
     const field = session.data.field;
     try {
-      // 組 filter
       let filter;
       if (field === '異常單號') {
         filter = { property: '異常單號', title: { contains: text } };
@@ -253,7 +245,6 @@ async function handleMessage(event) {
         filter = { property: field, rich_text: { contains: text } };
       }
 
-      // DB ID 加上 hyphen 格式
       const dbId = NOTION_DATABASE_ID.includes('-')
         ? NOTION_DATABASE_ID
         : NOTION_DATABASE_ID.replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, '$1-$2-$3-$4-$5');
@@ -288,25 +279,17 @@ async function handleMessage(event) {
       });
 
       if (results.length === 0) {
-        await replyText(replyToken, `🔍 查無「${text}」相關紀錄
-
-輸入「0」回主選單`);
+        await replyText(replyToken, `🔍 查無「${text}」相關紀錄\n\n輸入「0」回主選單`);
       } else {
-        const lines = [`🔍 找到 ${results.length} 筆「${text}」紀錄：
-`];
+        const lines = [`🔍 找到 ${results.length} 筆「${text}」紀錄：\n`];
         results.forEach((r, i) => {
           const je = r.judge.includes('驗退') ? '❌' : r.judge.includes('特採') ? '⚠️' : r.judge.includes('加工') ? '🔧' : '🔘';
           lines.push(
-            `${i+1}. ${r.num}　${r.date}
-` +
-            `   📍 ${r.unit}｜🏭 ${r.resp}
-` +
-            `   🔩 ${r.part}　📂 ${r.series}
-` +
-            `   ⚠️ ${r.issue}　🔢 ${r.qty}
-` +
-            `   📊 ${r.ratio}　${je} ${r.judge}
-` +
+            `${i+1}. ${r.num}　${r.date}\n` +
+            `   📍 ${r.unit}｜🏭 ${r.resp}\n` +
+            `   🔩 ${r.part}　📂 ${r.series}\n` +
+            `   ⚠️ ${r.issue}　🔢 ${r.qty}\n` +
+            `   📊 ${r.ratio}　${je} ${r.judge}\n` +
             `   🔘 ${r.status}　👤 ${r.reporter}`
           );
         });
@@ -387,26 +370,28 @@ async function generateAndSendExcel(data, wgNumber, reporterName, photoUrl, phot
     await workbook.xlsx.readFile(templatePath);
     const ws = workbook.worksheets[0];
 
-    // 填入儲存格
+    // 填入儲存格（對應 template.xlsx 佔位符位置）
     const setCell = (addr, val) => { try { ws.getCell(addr).value = val; } catch(e) {} };
-    setCell('C2', wgNumber);
-    setCell('D2', data.replyDate || '');
-    setCell('A4', data.date || new Date().toISOString().split('T')[0]);
-    setCell('B4', data.unit || '');
-    setCell('C4', data.resp || '');
-    setCell('D4', data.customer || '');
-    setCell('E4', data.product || '');
-    setCell('F4', data.series || '');
-    setCell('G4', data.anomaly || '');
-    setCell('H4', parseInt(data.qty) || null);
-    setCell('I4', data.orderNo || '');
-    setCell('J4', data.ratio || '');
-    setCell('K4', data.judge || '');
-    setCell('L4', reporterName);
-    setCell('O9', parseInt(data.laborPeople) || null);
-    setCell('Q9', parseInt(data.laborHours) || null);
-    setCell('V9', parseInt(data.adminPeople) || null);
-    setCell('X9', parseInt(data.adminHours) || null);
+    setCell('C2', wgNumber);                                    // {{異常單號}}
+    setCell('D2', data.replyDate || '');                         // {{需求回覆時間}}
+    setCell('A4', data.date || new Date().toISOString().split('T')[0]); // {{發生日期}}
+    setCell('B4', data.unit || '');                              // {{發生單位}}
+    setCell('C4', data.resp || '');                              // {{責任單位}}
+    setCell('D4', data.customer || '');                          // {{客戶}}
+    setCell('E4', data.product || '');                           // {{零件名稱}}
+    setCell('F4', data.series || '');                            // {{系列別}}
+    setCell('G4', data.anomaly || '');                           // {{異常狀況}}
+    setCell('H4', parseInt(data.qty) || null);                   // {{訂單數量}}
+    setCell('I4', data.orderNo || '');                           // {{單號}}
+    setCell('J4', data.ratio || '');                             // {{異常比例}}
+    setCell('K4', data.judge || '');                             // {{判定}}
+    setCell('L4', reporterName);                                 // {{回報人}}
+    setCell('M8', parseInt(data.laborPeople) || null);            // {{人工成本人}}
+    setCell('O8', parseInt(data.laborHours) || null);             // {{人工成本時}}
+    setCell('R8', parseInt(data.adminPeople) || null);            // {{行政成本人}}
+    setCell('T8', parseInt(data.adminHours) || null);             // {{行政成本時}}
+    setCell('X8', data.laborCost || '');                          // {{所耗人力成本}}
+    setCell('M10', data.remark || '');                            // {{異常標註內容}}
 
     // 嵌入照片
     const fetchBuf = (url) => new Promise((resolve) => {
@@ -524,6 +509,7 @@ app.post('/api/anomaly', async (req, res) => {
       '行政成本(人)': d.adminPeople || '',
       '行政成本(時)': d.adminHours || '',
       '所耗人力成本': d.laborCost || '',
+      '異常標註內容': '',
       '異常照片':     photoUrl || '',
       '異常照片2':    photoUrl2 || '',
     });
@@ -568,10 +554,10 @@ app.post('/api/generate-excel-from-sheet', async (req, res) => {
     const { data } = req.body;
     if (!data) return res.status(400).json({ success: false, error: 'Missing data' });
 
-    const wgNumber   = data['異常單號'] || 'WG_UNKNOWN';
+    const wgNumber     = data['異常單號'] || 'WG_UNKNOWN';
     const reporterName = data['回報人'] || '';
-    const photoUrl   = data['異常照片'] || null;
-    const photoUrl2  = data['異常照片2'] || null;
+    const photoUrl     = data['異常照片'] || null;
+    const photoUrl2    = data['異常照片2'] || null;
 
     // 對應欄位名稱
     const mapped = {
@@ -592,6 +578,8 @@ app.post('/api/generate-excel-from-sheet', async (req, res) => {
       laborHours:  data['人工成本(時)'] || '',
       adminPeople: data['行政成本(人)'] || '',
       adminHours:  data['行政成本(時)'] || '',
+      laborCost:   data['所耗人力成本'] || '',
+      remark:      data['異常標註內容'] || '',
     };
 
     const { downloadUrl } = await generateAndSendExcel(mapped, wgNumber, reporterName, photoUrl, photoUrl2);
@@ -612,7 +600,7 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-app.get('/', (req, res) => res.json({ status: 'LINE Bot running ✅', routes: ['/api/anomaly', '/webhook'] }));
+app.get('/', (req, res) => res.json({ status: 'LINE Bot running ✅', routes: ['/api/anomaly', '/api/generate-excel-from-sheet', '/webhook'] }));
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Bot started on port ${PORT}`));
