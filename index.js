@@ -1,9 +1,8 @@
-// v11 - 暫停 LINE 通知，優先確保 Sheets 寫入與名稱抓取
+// v12 - 徹底修復 Google Sheets 欄位錯位問題
 const express = require('express');
 const crypto  = require('crypto');
 const axios   = require('axios');
 const path    = require('path');
-const fs      = require('fs');
 const { google } = require('googleapis');
 
 const app = express();
@@ -14,7 +13,7 @@ app.use((req, res, next) => {
   if (req.method === 'OPTIONS') return res.sendStatus(200);
   next();
 });
-app.use(express.json({ limit: '10mb', verify: (req, res, buf) => { req.rawBody = buf; } }));
+app.use(express.json({ limit: '10mb' }));
 
 // ── 環境變數 ──
 const LINE_CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
@@ -35,15 +34,14 @@ function genWGNumber() {
 }
 
 async function getDisplayName(userId) {
-  if (!userId) return '未知用戶';
+  if (!userId) return '未知(無ID)';
   try {
     const r = await axios.get(`https://api.line.me/v2/bot/profile/${userId}`, {
       headers: { Authorization: `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}` }
     });
     return r.data.displayName || 'LINE用戶';
   } catch (e) {
-    console.error('抓取名稱失敗:', e.message);
-    return '抓取失敗(請檢查TOKEN)';
+    return '未知(抓取失敗)';
   }
 }
 
@@ -61,7 +59,7 @@ async function uploadToCloudinary(base64Data) {
   } catch (e) { return null; }
 }
 
-// ── Google Sheets 寫入函式 ──
+// ── 核心修復：自動對應標題的寫入函式 ──
 async function appendToSheet(dataMap) {
   try {
     const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS || '{}');
@@ -71,19 +69,24 @@ async function appendToSheet(dataMap) {
     });
     const sheets = google.sheets({ version: 'v4', auth });
     
-    // 取得第一個工作表名稱
     const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
     const sheetName = meta.data.sheets[0].properties.title;
 
-    const row = [
-      dataMap['異常單號'], dataMap['發生日期'], dataMap['需求回覆時間'],
-      dataMap['發生單位'], dataMap['責任單位'], dataMap['系列別'],
-      dataMap['單號'], dataMap['零件名稱'], dataMap['異常狀況'],
-      dataMap['訂單數量'], dataMap['異常比例'], dataMap['目前處理狀態'],
-      dataMap['判定'], dataMap['回報人'], '', '', '', '', '', '', 
-      dataMap['異常照片'], dataMap['異常照片2']
-    ];
+    // 1. 先抓取第一列的標題 (Headers)
+    const headerRes = await sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `${sheetName}!1:1`
+    });
+    const headers = headerRes.data.values ? headerRes.data.values[0] : [];
 
+    // 2. 根據標題順序組成資料列
+    // 如果標題是「零件名稱」，程式就會去找 dataMap['零件名稱']
+    const row = headers.map(header => {
+      const val = dataMap[header.trim()];
+      return val !== undefined ? val : '';
+    });
+
+    // 3. 寫入資料
     await sheets.spreadsheets.values.append({
       spreadsheetId: SPREADSHEET_ID,
       range: `${sheetName}!A1`,
@@ -91,9 +94,9 @@ async function appendToSheet(dataMap) {
       insertDataOption: 'INSERT_ROWS',
       requestBody: { values: [row] }
     });
-    console.log('Google Sheets 寫入成功');
+    console.log('Google Sheets 對應寫入成功');
   } catch (e) {
-    console.error('Google Sheets 寫入失敗:', e.message);
+    console.error('Sheets 寫入失敗:', e.message);
   }
 }
 
@@ -102,49 +105,45 @@ app.post('/api/anomaly', async (req, res) => {
   try {
     const d = req.body;
     
-    // 1. 優先處理名稱抓取
+    // 取得名稱與編號
     const reporterName = await getDisplayName(d.userId);
     const wgNumber = genWGNumber();
 
-    // 2. 上傳照片
+    // 上傳照片
     let photoUrl = d.photoData ? await uploadToCloudinary(d.photoData) : null;
     let photoUrl2 = d.photoData2 ? await uploadToCloudinary(d.photoData2) : null;
 
-    // 3. 執行 Google Sheets 寫入
-    await appendToSheet({
+    // 根據你的 Excel 標題準備資料
+    // 請確保這裡的 Key 跟 Excel 第一列的文字完全一樣
+    const dataToSheet = {
       '異常單號': wgNumber,
       '發生日期': d.date || new Date().toISOString().split('T')[0],
       '需求回覆時間': d.replyDate || '',
       '發生單位': d.unit || '',
       '責任單位': d.resp || '',
-      '系列別': d.series || '',
-      '單號': d.orderNo || '',
-      '零件名稱': d.product || '',
-      '異常狀況': d.anomaly || '',
+      '槍型號': d.series || '', // 對應你圖中的 E 欄
+      '單號': d.orderNo || '',   // 對應你圖中的 F 欄
       '訂單數量': d.qty || '',
       '異常比例': d.ratio || '',
-      '目前處理狀態': '未開始',
+      '零件名稱': d.product || '',
+      '異常狀況': d.anomaly || '',
       '判定': d.judge || '',
+      '目前處理狀態': '未開始',
       '回報人': reporterName,
-      '異常照片': photoUrl,
-      '異常照片2': photoUrl2
-    });
+      '異常照片': photoUrl || '',
+      '異常照片2': photoUrl2 || ''
+    };
 
-    // 4. LINE 通報目前停止 (已註解)
-    /* const msg = `【測試】通報已收到，單號: ${wgNumber}`;
-    for (const uid of (process.env.NOTIFY_USERS || '').split(',')) {
-       // pushText(uid, msg); 
-    }
-    */
+    // 執行寫入
+    await appendToSheet(dataToSheet);
 
     res.json({ success: true, number: wgNumber, reporter: reporterName });
   } catch (err) {
-    console.error('API Error:', err.message);
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-app.get('/', (req, res) => res.send('System running. LINE service paused. Sheets priority mode.'));
+app.get('/', (req, res) => res.send('Corrected Mapping Engine Running.'));
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
