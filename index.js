@@ -1,4 +1,4 @@
-// v6 - 移除自動產生 Excel，改為手動觸發模式
+// v7 - 恢復詳細文字通報 + 手動觸發 Excel 模式
 const express = require('express');
 const crypto  = require('crypto');
 const axios   = require('axios');
@@ -68,6 +68,16 @@ async function appendToSheet(dataMap){
   } catch(e){ console.error('appendToSheet failed:', e.message); }
 }
 
+// ── 流水號 ──
+const dailyCounters = {};
+function genWGNumber() {
+  const now = new Date();
+  const y = now.getFullYear(), m = String(now.getMonth()+1).padStart(2,'0'), d = String(now.getDate()).padStart(2,'0');
+  const key = `${y}${m}${d}`;
+  dailyCounters[key] = (dailyCounters[key] || 0) + 1;
+  return `WG${y}${m}${d}${String(dailyCounters[key]).padStart(2,'0')}`;
+}
+
 // ── 工具函式 ──
 function verifySignature(req) {
   const sig  = req.headers['x-line-signature'];
@@ -130,7 +140,6 @@ async function generateAndSendExcel(data, wgNumber, reporterName, photoUrl, phot
     await workbook.xlsx.readFile(templatePath);
     const ws = workbook.worksheets[0];
 
-    // 填寫儲存格
     const setCell = (addr, val) => { ws.getCell(addr).value = val || ''; };
     setCell('C2', wgNumber);
     setCell('D2', data.replyDate);
@@ -153,7 +162,6 @@ async function generateAndSendExcel(data, wgNumber, reporterName, photoUrl, phot
     setCell('X8', data.laborCost);
     setCell('M10', data.remark);
 
-    // 圖片嵌入邏輯 (簡化處理)
     const fetchBuf = async (url) => {
         try { const r = await axios.get(url, { responseType: 'arraybuffer' }); return Buffer.from(r.data); } 
         catch { return null; }
@@ -174,7 +182,7 @@ async function generateAndSendExcel(data, wgNumber, reporterName, photoUrl, phot
     if (downloadUrl) {
       const targets = EXCEL_NOTIFY_USERS.length > 0 ? EXCEL_NOTIFY_USERS : NOTIFY_USERS;
       for (const uid of targets) {
-        await pushText(uid, `📋 異常通知單(Excel)已產生！\n單號：${wgNumber}\n下載連結：${downloadUrl}`);
+        await pushText(uid, `📋 品質異常通知單已產生！\n單號：${wgNumber}\n下載連結：${downloadUrl}`);
       }
     }
     return { downloadUrl };
@@ -183,35 +191,73 @@ async function generateAndSendExcel(data, wgNumber, reporterName, photoUrl, phot
 
 // ── API Routes ──
 
-// 1. LIFF 提交：只存檔，不生 Excel
 app.post('/api/anomaly', async (req, res) => {
   try {
     const d = req.body;
     const reporterName = d.userId ? await getDisplayName(d.userId) : '(未知)';
-    const wgNumber = `WG${new Date().toISOString().slice(0,10).replace(/-/g,'')}${Math.floor(Math.random()*100)}`;
+    const wgNumber = genWGNumber();
 
     let photoUrl = d.photoData ? await uploadToCloudinary(d.photoData) : null;
     let photoUrl2 = d.photoData2 ? await uploadToCloudinary(d.photoData2) : null;
 
-    // 寫入 Google Sheets
-    await appendToSheet({
-      '異常單號': wgNumber, '發生日期': new Date().toISOString().split('T')[0],
-      '發生單位': d.unit, '責任單位': d.resp, '零件名稱': d.product, '異常狀況': d.anomaly,
-      '判定': d.judge, '回報人': reporterName, '異常照片': photoUrl, '異常照片2': photoUrl2
+    // 1. 寫入 Notion
+    const toText = (v) => [{ text: { content: v ? String(v) : '' } }];
+    const properties = {
+      '異常單號': { title: [{ text: { content: wgNumber } }] },
+      '發生日期': { date: { start: new Date().toISOString().split('T')[0] } },
+      '發生單位': { rich_text: toText(d.unit) },
+      '責任單位': { rich_text: toText(d.resp) },
+      '零件名稱': { rich_text: toText(d.product) },
+      '系列別':   { rich_text: toText(d.series) },
+      '異常狀況': { rich_text: toText(d.anomaly) },
+      '判定':     { rich_text: toText(d.judge) },
+      '訂單數量': { number: parseInt(d.qty) || null },
+      '異常比例': { rich_text: toText(d.ratio) },
+      '回報人':   { rich_text: toText(reporterName) }
+    };
+    if (photoUrl) properties['異常照片'] = { url: photoUrl };
+    if (photoUrl2) properties['異常照片2'] = { url: photoUrl2 };
+    
+    await axios.post('https://api.notion.com/v1/pages', { parent: { database_id: NOTION_DATABASE_ID }, properties }, {
+      headers: { Authorization: `Bearer ${NOTION_TOKEN}`, 'Notion-Version': '2022-06-28' }
     });
 
-    // 只發送簡單收單通知
-    const msg = `【新異常通報 ${wgNumber}】\n👤 回報人：${reporterName}\n📦 品名：${d.product}\n⚠️ 狀態：資料已儲存，待編輯後可手動匯出 Excel。`;
-    for (const uid of NOTIFY_USERS) { await pushText(uid, msg).catch(() => {}); }
+    // 2. 寫入 Google Sheets
+    await appendToSheet({
+      '異常單號': wgNumber, '發生日期': d.date || new Date().toISOString().split('T')[0],
+      '需求回覆時間': d.replyDate || '', '發生單位': d.unit, '責任單位': d.resp, 
+      '系列別': d.series, '零件名稱': d.product, '異常狀況': d.anomaly,
+      '訂單數量': d.qty, '異常比例': d.ratio, '判定': d.judge, '回報人': reporterName,
+      '異常照片': photoUrl, '異常照片2': photoUrl2
+    });
+
+    // 3. 發送詳細文字通報 (你要求恢復的部分)
+    const judgeEmoji = d.judge.includes('驗退') ? '❌' : d.judge.includes('特採') ? '⚠️' : '🔧';
+    const msg =
+      `【異常通報 ${wgNumber}】\n` +
+      `👤 回報人：${reporterName}\n` +
+      `📦 品名：${d.product || '(未填)'}　系列：${d.series || ''}\n` +
+      `📍 發生單位：${d.unit}\n` +
+      `🏭 責任單位：${d.resp}\n` +
+      `⚠️ 異常：${d.anomaly}\n` +
+      `🔢 訂單數量：${d.qty}　比例：${d.ratio}\n` +
+      `${judgeEmoji} 判定：${d.judge}\n` +
+      `📅 日期：${d.date || new Date().toLocaleDateString()}` +
+      (d.replyDate ? `\n📆 回覆期限：${d.replyDate}` : '') +
+      (photoUrl  ? `\n📷 照片1：${photoUrl}`  : '') +
+      (photoUrl2 ? `\n📷 照片2：${photoUrl2}` : '');
+
+    for (const uid of NOTIFY_USERS) {
+      await pushText(uid, msg).catch(e => console.error('push text failed:', e.message));
+    }
 
     res.json({ success: true, number: wgNumber });
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
-// 2. 手動觸發：從 Sheets 編輯後匯出
 app.post('/api/generate-excel-from-sheet', async (req, res) => {
   try {
-    const { data } = req.body; // 預期接收來自 Sheets 的整列資料
+    const { data } = req.body;
     const mapped = {
       date: data['發生日期'], replyDate: data['需求回覆時間'], unit: data['發生單位'],
       resp: data['責任單位'], customer: data['客戶'], product: data['零件名稱'],
@@ -232,4 +278,4 @@ app.post('/webhook', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server running on ${PORT}`));
+app.listen(PORT, () => console.log(`Server started on ${PORT}`));
