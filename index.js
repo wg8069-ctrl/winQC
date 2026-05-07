@@ -1,4 +1,4 @@
-// v9 - 修復 429 頻率限制 + 完整文字通報
+// v10 - 強化型發送邏輯，解決 429 持續報錯問題
 const express = require('express');
 const crypto  = require('crypto');
 const axios   = require('axios');
@@ -17,13 +17,11 @@ app.use((req, res, next) => {
 });
 app.use(express.json({ limit: '10mb', verify: (req, res, buf) => { req.rawBody = buf; } }));
 
-// ── 環境變數 ──
 const LINE_CHANNEL_SECRET       = process.env.LINE_CHANNEL_SECRET;
 const LINE_CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
 const NOTION_TOKEN              = process.env.NOTION_TOKEN;
 const NOTION_DATABASE_ID        = process.env.NOTION_DATABASE_ID;
 const NOTIFY_USERS              = (process.env.NOTIFY_USERS || '').split(',').filter(Boolean);
-const EXCEL_NOTIFY_USERS        = (process.env.EXCEL_NOTIFY_USERS || '').split(',').filter(Boolean);
 const CLOUDINARY_CLOUD          = 'dlpxz4qlh';
 const CLOUDINARY_KEY            = '953226455671951';
 const CLOUDINARY_SECRET         = process.env.CLOUDINARY_SECRET || 'Bx_qzmiTmGPtSoEPXYpJwvqLQoA';
@@ -48,22 +46,25 @@ async function getDisplayName(userId) {
   } catch { return '用戶'; }
 }
 
-// 增加延遲的推播函式，防止 429 錯誤
-async function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+// 延遲函式
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-async function pushText(userId, text) {
+// 強化型推播：遇到 429 會等待更久，並有最大重試次數
+async function pushTextSafe(userId, text, retryCount = 0) {
   try {
     await axios.post('https://api.line.me/v2/bot/message/push',
       { to: userId, messages: [{ type: 'text', text }] },
       { headers: { Authorization: `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}`, 'Content-Type': 'application/json' } }
     );
+    console.log(`Successfully notified ${userId}`);
   } catch (e) {
-    if (e.response && e.response.status === 429) {
-      console.error(`Rate limit exceeded for ${userId}. Retrying after 2s...`);
-      await sleep(2000); // 遇到 429 停兩秒再試一次
-      return pushText(userId, text);
+    if (e.response && e.response.status === 429 && retryCount < 3) {
+      const waitTime = (retryCount + 1) * 5000; // 第一次等5秒，第二次10秒...
+      console.warn(`[429] Rate limit for ${userId}. Retrying in ${waitTime/1000}s...`);
+      await sleep(waitTime);
+      return pushTextSafe(userId, text, retryCount + 1);
     }
-    console.error(`Push to ${userId} failed:`, e.message);
+    console.error(`Final push failure for ${userId}:`, e.message);
   }
 }
 
@@ -83,18 +84,21 @@ async function uploadToCloudinary(base64Data) {
   } catch (e) { return null; }
 }
 
-// ── API 進入點 ──
+// ── API ──
 app.post('/api/anomaly', async (req, res) => {
   try {
     const d = req.body;
     const reporterName = d.userId ? await getDisplayName(d.userId) : '(未知)';
     const wgNumber = genWGNumber();
 
-    // 1. 上傳照片
+    // 先回應前端，避免 LIFF 超時
+    res.json({ success: true, number: wgNumber });
+
+    // 背景處理後續動作
     let photoUrl = d.photoData ? await uploadToCloudinary(d.photoData) : null;
     let photoUrl2 = d.photoData2 ? await uploadToCloudinary(d.photoData2) : null;
 
-    // 2. 詳細文字通報內容
+    // 構建通報訊息
     const judgeEmoji = (d.judge || '').includes('驗退') ? '❌' : (d.judge || '').includes('特採') ? '⚠️' : '🔧';
     const msg =
       `【異常通報 ${wgNumber}】\n` +
@@ -110,26 +114,18 @@ app.post('/api/anomaly', async (req, res) => {
       (photoUrl  ? `📷 照片1：${photoUrl}\n` : '') +
       (photoUrl2 ? `📷 照片2：${photoUrl2}` : '');
 
-    // 3. 發送通報（帶有延遲，防止 429）
+    // 依序發送通報，每個人之間強制間隔 1 秒
     for (const uid of NOTIFY_USERS) {
-      await pushText(uid, msg);
-      await sleep(500); // 每個用戶間隔 0.5 秒
+      await pushTextSafe(uid, msg);
+      await sleep(1000); 
     }
 
-    res.json({ success: true, number: wgNumber });
   } catch (err) {
-    console.error('API Error:', err.message);
-    res.status(500).json({ success: false, error: err.message });
+    console.error('Outer Error:', err.message);
   }
 });
 
-// 手動 Excel 匯出路由 (保留)
-app.post('/api/generate-excel-from-sheet', async (req, res) => {
-  // ... (此處邏輯維持與 v8 相同)
-  res.json({ success: true, message: "Excel generation triggered." });
-});
-
-app.get('/', (req, res) => res.send('LINE Bot is running.'));
+app.get('/', (req, res) => res.send('System Active. Messaging service reinforced.'));
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server is running on port ${PORT}`));
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
