@@ -366,12 +366,17 @@ async function uploadExcelToCloudinary(buffer, filename) {
 async function generateAndSendExcel(data, wgNumber, reporterName, photoUrl, photoUrl2) {
   try {
     const templatePath = path.join(__dirname, 'template.xlsx');
+    if (!fs.existsSync(templatePath)) {
+      console.error('template.xlsx not found at:', templatePath);
+      return { buffer: null, downloadUrl: null };
+    }
+
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.readFile(templatePath);
     const ws = workbook.worksheets[0];
 
     // 填入儲存格（對應 template.xlsx 佔位符位置）
-    const setCell = (addr, val) => { try { ws.getCell(addr).value = val; } catch(e) {} };
+    const setCell = (addr, val) => { try { ws.getCell(addr).value = val; } catch(e) { console.error('setCell error:', addr, e.message); } };
     setCell('C2', wgNumber);                                    // {{異常單號}}
     setCell('D2', data.replyDate || '');                         // {{需求回覆時間}}
     setCell('A4', data.date || new Date().toISOString().split('T')[0]); // {{發生日期}}
@@ -393,32 +398,41 @@ async function generateAndSendExcel(data, wgNumber, reporterName, photoUrl, phot
     setCell('X8', data.laborCost || '');                          // {{所耗人力成本}}
     setCell('M10', data.remark || '');                            // {{異常標註內容}}
 
-    // 嵌入照片
+    // 嵌入照片（加 timeout 防止卡住）
     const fetchBuf = (url) => new Promise((resolve) => {
-      const mod = url.startsWith('https') ? require('https') : require('http');
-      mod.get(url, (res) => {
-        const chunks = [];
-        res.on('data', c => chunks.push(c));
-        res.on('end', () => resolve(Buffer.concat(chunks)));
-        res.on('error', () => resolve(null));
-      }).on('error', () => resolve(null));
+      const timeout = setTimeout(() => { console.error('Photo fetch timeout:', url); resolve(null); }, 15000);
+      try {
+        const mod = url.startsWith('https') ? require('https') : require('http');
+        mod.get(url, (res) => {
+          const chunks = [];
+          res.on('data', c => chunks.push(c));
+          res.on('end', () => { clearTimeout(timeout); resolve(Buffer.concat(chunks)); });
+          res.on('error', (e) => { clearTimeout(timeout); console.error('Photo stream error:', e.message); resolve(null); });
+        }).on('error', (e) => { clearTimeout(timeout); console.error('Photo request error:', e.message); resolve(null); });
+      } catch(e) { clearTimeout(timeout); console.error('Photo fetch error:', e.message); resolve(null); }
     });
 
     for (const [url, col, row] of [[photoUrl, 0, 4], [photoUrl2, 6, 4]]) {
       if (url) {
+        console.log('Fetching photo for Excel:', url.substring(0, 80));
         const imgBuf = await fetchBuf(url);
-        if (imgBuf) {
+        if (imgBuf && imgBuf.length > 100) {
           const imgId = workbook.addImage({ buffer: imgBuf, extension: 'jpeg' });
           ws.addImage(imgId, { tl: { col, row }, ext: { width: 360, height: 360 } });
+          console.log('Photo embedded, size:', imgBuf.length);
+        } else {
+          console.log('Photo skipped (empty or too small)');
         }
       }
     }
 
-    const buffer   = await workbook.xlsx.writeBuffer();
+    const buffer = await workbook.xlsx.writeBuffer();
+    console.log('Excel buffer generated, size:', buffer.length);
     const filename = `${wgNumber}.xlsx`;
 
     // 上傳到 Cloudinary
     const downloadUrl = await uploadExcelToCloudinary(buffer, filename);
+    console.log('Cloudinary upload result:', downloadUrl ? 'OK' : 'FAILED');
 
     // 傳送 LINE 訊息
     if (downloadUrl) {
@@ -431,7 +445,7 @@ async function generateAndSendExcel(data, wgNumber, reporterName, photoUrl, phot
 
     return { buffer, downloadUrl };
   } catch (e) {
-    console.error('generateAndSendExcel failed:', e.message);
+    console.error('generateAndSendExcel failed:', e.message, e.stack);
     return { buffer: null, downloadUrl: null };
   }
 }
@@ -583,7 +597,11 @@ app.post('/api/generate-excel-from-sheet', async (req, res) => {
     };
 
     const { downloadUrl } = await generateAndSendExcel(mapped, wgNumber, reporterName, photoUrl, photoUrl2);
-    res.json({ success: true, url: downloadUrl });
+    if (downloadUrl) {
+      res.json({ success: true, url: downloadUrl });
+    } else {
+      res.status(500).json({ success: false, error: 'Excel 產生或上傳失敗，請檢查 Render log' });
+    }
   } catch (err) {
     console.error('/api/generate-excel-from-sheet error:', err.message);
     res.status(500).json({ success: false, error: err.message });
