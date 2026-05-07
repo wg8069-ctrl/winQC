@@ -345,19 +345,32 @@ async function uploadToCloudinary(base64Data) {
 // ════════════════════════════════════════
 async function uploadExcelToCloudinary(buffer, filename) {
   try {
+    // 確保是 Node Buffer
+    const buf = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
+    console.log('Cloudinary upload start, file:', filename, 'size:', buf.length);
+
     const timestamp = Math.floor(Date.now()/1000);
     const signature = crypto.createHash('sha1').update(`timestamp=${timestamp}${CLOUDINARY_SECRET}`).digest('hex');
     const form = new FormData();
-    form.append('file', buffer, { filename, contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    form.append('file', buf, { filename, contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     form.append('timestamp', String(timestamp));
     form.append('api_key', CLOUDINARY_KEY);
     form.append('signature', signature);
-    form.append('resource_type', 'raw');
-    const r = await axios.post(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/raw/upload`, form, {
-      headers: form.getHeaders(), maxContentLength: Infinity, maxBodyLength: Infinity
-    });
+
+    const r = await axios.post(
+      `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/raw/upload`,
+      form,
+      { headers: form.getHeaders(), maxContentLength: Infinity, maxBodyLength: Infinity, timeout: 30000 }
+    );
+    console.log('Cloudinary upload success:', r.data.secure_url);
     return r.data.secure_url;
-  } catch (e) { console.error('Cloudinary excel upload failed:', e.response?.data || e.message); return null; }
+  } catch (e) {
+    console.error('Cloudinary excel upload failed:');
+    console.error('  status:', e.response?.status);
+    console.error('  data:', JSON.stringify(e.response?.data || {}));
+    console.error('  message:', e.message);
+    return null;
+  }
 }
 
 // ════════════════════════════════════════
@@ -605,6 +618,32 @@ app.post('/api/generate-excel-from-sheet', async (req, res) => {
   } catch (err) {
     console.error('/api/generate-excel-from-sheet error:', err.message);
     res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 測試 Excel 產生（GET 即可觸發）
+app.get('/api/test-excel', async (req, res) => {
+  try {
+    const templatePath = path.join(__dirname, 'template.xlsx');
+    const exists = fs.existsSync(templatePath);
+    if (!exists) return res.json({ error: 'template.xlsx not found', path: templatePath });
+
+    const testData = {
+      date: '2026/05/07', unit: '本廠', resp: '偉剛', customer: '',
+      product: '測試品名', series: '305', anomaly: '外觀不良',
+      qty: '1008', orderNo: '', ratio: '3%', judge: '驗退X',
+      laborPeople: '', laborHours: '', adminPeople: '', adminHours: '',
+      laborCost: '', remark: '', replyDate: '', status: ''
+    };
+    const { buffer, downloadUrl } = await generateAndSendExcel(testData, 'WG_TEST', '測試員', null, null);
+    res.json({
+      templateExists: exists,
+      bufferSize: buffer ? buffer.length : 0,
+      downloadUrl: downloadUrl || 'UPLOAD_FAILED',
+      success: !!downloadUrl
+    });
+  } catch (e) {
+    res.json({ error: e.message, stack: e.stack });
   }
 });
 
