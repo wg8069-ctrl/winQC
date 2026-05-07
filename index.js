@@ -372,7 +372,44 @@ async function uploadExcelToCloudinary(buffer, filename) {
     return null;
   }
 }
+function cleanExcelText(val) {
+  if (val === null || val === undefined) return '';
+  return String(val).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '').trim();
+}
 
+function replacePlaceholdersInWorkbook(workbook, dataMap) {
+  workbook.eachSheet(function(ws) {
+    ws.eachRow(function(row) {
+      row.eachCell(function(cell) {
+        if (typeof cell.value === 'string') {
+          cell.value = replaceText(cell.value, dataMap);
+        } else if (cell.value && typeof cell.value === 'object') {
+          if (cell.value.richText && Array.isArray(cell.value.richText)) {
+            cell.value.richText.forEach(function(rt) {
+              if (rt.text) rt.text = replaceText(rt.text, dataMap);
+            });
+          } else if (cell.value.text) {
+            cell.value.text = replaceText(cell.value.text, dataMap);
+          }
+        }
+      });
+    });
+  });
+}
+
+function replaceText(text, dataMap) {
+  let result = String(text || '');
+
+  Object.keys(dataMap).forEach(function(key) {
+    const value = cleanExcelText(dataMap[key]);
+
+    result = result
+      .split('{{' + key + '}}').join(value)
+      .split('｛｛' + key + '｝｝').join(value);
+  });
+
+  return result;
+}
 // ════════════════════════════════════════
 //  產生 Excel 並傳送 LINE
 // ════════════════════════════════════════
@@ -410,7 +447,35 @@ async function generateAndSendExcel(data, wgNumber, reporterName, photoUrl, phot
     setCell('T8', parseInt(data.adminHours) || null);             // {{行政成本時}}
     setCell('X8', data.laborCost || '');                          // {{所耗人力成本}}
     setCell('M10', data.remark || '');                            // {{異常標註內容}}
+replacePlaceholdersInWorkbook(workbook, {
+  '異常單號': wgNumber,
+  '需求回覆時間': data.replyDate || '',
+  '發生日期': data.date || '',
+  '發生單位': data.unit || '',
+  '責任單位': data.resp || '',
+  '客戶': data.customer || '',
+  '零件名稱': data.product || '',
+  '系列別': data.series || '',
+  '單號': data.orderNo || '',
+  '異常狀況': data.anomaly || '',
+  '訂單數量': data.qty || '',
+  '異常比例': data.ratio || '',
+  '判定': data.judge || '',
+  '回報人': reporterName || '',
 
+  '人工成本(人)': data.laborPeople || '',
+  '人工成本(時)': data.laborHours || '',
+  '行政成本(人)': data.adminPeople || '',
+  '行政成本(時)': data.adminHours || '',
+  '所耗人力成本': data.laborCost || '',
+  '異常標註內容': data.remark || '',
+
+  // 舊版名稱也一起支援
+  '人工成本人': data.laborPeople || '',
+  '人工成本時': data.laborHours || '',
+  '行政成本人': data.adminPeople || '',
+  '行政成本時': data.adminHours || ''
+});
     // 嵌入照片（加 timeout 防止卡住）
     const fetchBuf = (url) => new Promise((resolve) => {
       const timeout = setTimeout(() => { console.error('Photo fetch timeout:', url); resolve(null); }, 15000);
