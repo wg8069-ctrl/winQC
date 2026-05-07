@@ -1,11 +1,10 @@
-// v10 - 強化型發送邏輯，解決 429 持續報錯問題
+// v11 - 暫停 LINE 通知，優先確保 Sheets 寫入與名稱抓取
 const express = require('express');
 const crypto  = require('crypto');
 const axios   = require('axios');
-const ExcelJS = require('exceljs');
 const path    = require('path');
 const fs      = require('fs');
-const FormData = require('form-data');
+const { google } = require('googleapis');
 
 const app = express();
 app.use((req, res, next) => {
@@ -17,14 +16,12 @@ app.use((req, res, next) => {
 });
 app.use(express.json({ limit: '10mb', verify: (req, res, buf) => { req.rawBody = buf; } }));
 
-const LINE_CHANNEL_SECRET       = process.env.LINE_CHANNEL_SECRET;
+// ── 環境變數 ──
 const LINE_CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
-const NOTION_TOKEN              = process.env.NOTION_TOKEN;
-const NOTION_DATABASE_ID        = process.env.NOTION_DATABASE_ID;
-const NOTIFY_USERS              = (process.env.NOTIFY_USERS || '').split(',').filter(Boolean);
-const CLOUDINARY_CLOUD          = 'dlpxz4qlh';
-const CLOUDINARY_KEY            = '953226455671951';
-const CLOUDINARY_SECRET         = process.env.CLOUDINARY_SECRET || 'Bx_qzmiTmGPtSoEPXYpJwvqLQoA';
+const SPREADSHEET_ID = process.env.GOOGLE_SHEET_ID || '1PDzqFlsjPgHJBhDsB8gwuu3_eRwJ6GS_uV2Sc6ZanXM';
+const CLOUDINARY_SECRET = process.env.CLOUDINARY_SECRET || 'Bx_qzmiTmGPtSoEPXYpJwvqLQoA';
+const CLOUDINARY_CLOUD  = 'dlpxz4qlh';
+const CLOUDINARY_KEY    = '953226455671951';
 
 const dailyCounters = {};
 
@@ -38,33 +35,15 @@ function genWGNumber() {
 }
 
 async function getDisplayName(userId) {
+  if (!userId) return '未知用戶';
   try {
     const r = await axios.get(`https://api.line.me/v2/bot/profile/${userId}`, {
       headers: { Authorization: `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}` }
     });
-    return r.data.displayName || '用戶';
-  } catch { return '用戶'; }
-}
-
-// 延遲函式
-const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
-// 強化型推播：遇到 429 會等待更久，並有最大重試次數
-async function pushTextSafe(userId, text, retryCount = 0) {
-  try {
-    await axios.post('https://api.line.me/v2/bot/message/push',
-      { to: userId, messages: [{ type: 'text', text }] },
-      { headers: { Authorization: `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}`, 'Content-Type': 'application/json' } }
-    );
-    console.log(`Successfully notified ${userId}`);
+    return r.data.displayName || 'LINE用戶';
   } catch (e) {
-    if (e.response && e.response.status === 429 && retryCount < 3) {
-      const waitTime = (retryCount + 1) * 5000; // 第一次等5秒，第二次10秒...
-      console.warn(`[429] Rate limit for ${userId}. Retrying in ${waitTime/1000}s...`);
-      await sleep(waitTime);
-      return pushTextSafe(userId, text, retryCount + 1);
-    }
-    console.error(`Final push failure for ${userId}:`, e.message);
+    console.error('抓取名稱失敗:', e.message);
+    return '抓取失敗(請檢查TOKEN)';
   }
 }
 
@@ -77,55 +56,95 @@ async function uploadToCloudinary(base64Data) {
     formData.append('timestamp', timestamp);
     formData.append('api_key', CLOUDINARY_KEY);
     formData.append('signature', signature);
-    const r = await axios.post(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/image/upload`, formData.toString(), {
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
-    });
+    const r = await axios.post(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/image/upload`, formData.toString());
     return r.data.secure_url;
   } catch (e) { return null; }
+}
+
+// ── Google Sheets 寫入函式 ──
+async function appendToSheet(dataMap) {
+  try {
+    const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS || '{}');
+    const auth = new google.auth.GoogleAuth({
+      credentials,
+      scopes: ['https://www.googleapis.com/auth/spreadsheets']
+    });
+    const sheets = google.sheets({ version: 'v4', auth });
+    
+    // 取得第一個工作表名稱
+    const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
+    const sheetName = meta.data.sheets[0].properties.title;
+
+    const row = [
+      dataMap['異常單號'], dataMap['發生日期'], dataMap['需求回覆時間'],
+      dataMap['發生單位'], dataMap['責任單位'], dataMap['系列別'],
+      dataMap['單號'], dataMap['零件名稱'], dataMap['異常狀況'],
+      dataMap['訂單數量'], dataMap['異常比例'], dataMap['目前處理狀態'],
+      dataMap['判定'], dataMap['回報人'], '', '', '', '', '', '', 
+      dataMap['異常照片'], dataMap['異常照片2']
+    ];
+
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `${sheetName}!A1`,
+      valueInputOption: 'RAW',
+      insertDataOption: 'INSERT_ROWS',
+      requestBody: { values: [row] }
+    });
+    console.log('Google Sheets 寫入成功');
+  } catch (e) {
+    console.error('Google Sheets 寫入失敗:', e.message);
+  }
 }
 
 // ── API ──
 app.post('/api/anomaly', async (req, res) => {
   try {
     const d = req.body;
-    const reporterName = d.userId ? await getDisplayName(d.userId) : '(未知)';
+    
+    // 1. 優先處理名稱抓取
+    const reporterName = await getDisplayName(d.userId);
     const wgNumber = genWGNumber();
 
-    // 先回應前端，避免 LIFF 超時
-    res.json({ success: true, number: wgNumber });
-
-    // 背景處理後續動作
+    // 2. 上傳照片
     let photoUrl = d.photoData ? await uploadToCloudinary(d.photoData) : null;
     let photoUrl2 = d.photoData2 ? await uploadToCloudinary(d.photoData2) : null;
 
-    // 構建通報訊息
-    const judgeEmoji = (d.judge || '').includes('驗退') ? '❌' : (d.judge || '').includes('特採') ? '⚠️' : '🔧';
-    const msg =
-      `【異常通報 ${wgNumber}】\n` +
-      `👤 回報人：${reporterName}\n` +
-      `📦 品名：${d.product || '(未填)'}　系列：${d.series || ''}\n` +
-      `📍 發生單位：${d.unit || ''}\n` +
-      `🏭 責任單位：${d.resp || ''}\n` +
-      `⚠️ 異常：${d.anomaly || ''}\n` +
-      `🔢 訂單數量：${d.qty || ''}　比例：${d.ratio || ''}\n` +
-      `${judgeEmoji} 判定：${d.judge || ''}\n` +
-      `📅 日期：${d.date || new Date().toLocaleDateString()}\n` +
-      (d.replyDate ? `📆 回覆期限：${d.replyDate}\n` : '') +
-      (photoUrl  ? `📷 照片1：${photoUrl}\n` : '') +
-      (photoUrl2 ? `📷 照片2：${photoUrl2}` : '');
+    // 3. 執行 Google Sheets 寫入
+    await appendToSheet({
+      '異常單號': wgNumber,
+      '發生日期': d.date || new Date().toISOString().split('T')[0],
+      '需求回覆時間': d.replyDate || '',
+      '發生單位': d.unit || '',
+      '責任單位': d.resp || '',
+      '系列別': d.series || '',
+      '單號': d.orderNo || '',
+      '零件名稱': d.product || '',
+      '異常狀況': d.anomaly || '',
+      '訂單數量': d.qty || '',
+      '異常比例': d.ratio || '',
+      '目前處理狀態': '未開始',
+      '判定': d.judge || '',
+      '回報人': reporterName,
+      '異常照片': photoUrl,
+      '異常照片2': photoUrl2
+    });
 
-    // 依序發送通報，每個人之間強制間隔 1 秒
-    for (const uid of NOTIFY_USERS) {
-      await pushTextSafe(uid, msg);
-      await sleep(1000); 
+    // 4. LINE 通報目前停止 (已註解)
+    /* const msg = `【測試】通報已收到，單號: ${wgNumber}`;
+    for (const uid of (process.env.NOTIFY_USERS || '').split(',')) {
+       // pushText(uid, msg); 
     }
+    */
 
+    res.json({ success: true, number: wgNumber, reporter: reporterName });
   } catch (err) {
-    console.error('Outer Error:', err.message);
+    console.error('API Error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 
-app.get('/', (req, res) => res.send('System Active. Messaging service reinforced.'));
+app.get('/', (req, res) => res.send('System running. LINE service paused. Sheets priority mode.'));
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
