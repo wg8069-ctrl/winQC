@@ -159,8 +159,7 @@ async function replyFlex(replyToken) {
         quickReply: {
           items: [
             { type: 'action', action: { type: 'uri', label: '📋 建立異常單', uri: 'https://liff.line.me/2009600334-UpN6esDu' } },
-            { type: 'action', action: { type: 'message', label: '🔍 查詢紀錄', text: '查詢' } },
-            { type: 'action', action: { type: 'uri', label: '📊 異常總表', uri: 'https://cream-scilla-479.notion.site/3361694680a780818f79cc3b72653beb?v=3361694680a78063aba2000c3ab24962' } }
+            { type: 'action', action: { type: 'uri', label: '📊 異常總表', uri: 'https://script.google.com/macros/s/AKfycbz9-Z17T6YdRNpr2efPAcvMkDXpMcKjq5qqAZR35lrUu2SM86ciCLaybo2JCXggYXG1gQ/exec' } }
           ]
         }
       }]
