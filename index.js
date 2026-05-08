@@ -33,7 +33,7 @@ const sessions = {};
 // ── Google Sheets ──
 const { google } = require('googleapis');
 const SPREADSHEET_ID = process.env.GOOGLE_SHEET_ID || '1PDzqFlsjPgHJBhDsB8gwuu3_eRwJ6GS_uV2Sc6ZanXM';
-const SHEET_HEADERS = ['異常單號','發生日期','狀態','需求回覆時間','發生單位','責任單位','槍型號','單號','零件名稱','異常狀況','訂單數量','異常比例','判定','回報人','人工成本(人)','人工成本(時)','行政成本(人)','行政成本(時)','所耗人力成本','異常標註內容','異常照片','異常照片2'];
+const SHEET_HEADERS = ['異常單號','發生日期','狀態','需求回覆時間','發生單位','責任單位','槍型號','單號','零件名稱','異常狀況','訂單數量','異常比例','目前處理狀態','判定','回報人','人工成本(人)','人工成本(時)','行政成本(人)','行政成本(時)','所耗人力成本','異常標註內容','異常照片','異常照片2'];
 
 async function getSheets(){
   const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS || '{}');
@@ -584,7 +584,7 @@ app.post('/api/anomaly', async (req, res) => {
     appendToSheet({
       '異常單號':     wgNumber,
       '發生日期':     new Date().toISOString().split('T')[0],
-      '狀態': d.status || '未處理',
+      '狀態':         '未處理',
       '需求回覆時間': d.replyDate || '',
       '發生單位':     d.unit || '',
       '責任單位':     d.resp || '',
@@ -595,6 +595,7 @@ app.post('/api/anomaly', async (req, res) => {
       '異常狀況':     d.anomaly || '',
       '訂單數量':     parseInt(d.qty) || '',
       '異常比例':     d.ratio || '',
+      '目前處理狀態': d.status || '',
       '判定':         d.judge || '',
       '回報人':       reporterName,
       '人工成本(人)': d.laborPeople || '',
