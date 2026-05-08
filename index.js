@@ -33,7 +33,7 @@ const sessions = {};
 // ── Google Sheets ──
 const { google } = require('googleapis');
 const SPREADSHEET_ID = process.env.GOOGLE_SHEET_ID || '1PDzqFlsjPgHJBhDsB8gwuu3_eRwJ6GS_uV2Sc6ZanXM';
-const SHEET_HEADERS = ['異常單號','發生日期','需求回覆時間','發生單位','責任單位','系列別','單號','零件名稱','異常狀況','訂單數量','異常比例','目前處理狀態','判定','回報人','人工成本(人)','人工成本(時)','行政成本(人)','行政成本(時)','所耗人力成本','異常標註內容','異常照片','異常照片2'];
+const SHEET_HEADERS = ['異常單號','發生日期','需求回覆時間','發生單位','責任單位','系列別','單號','零件名稱','異常狀況','訂單數量','異常比例','狀態','判定','回報人','人工成本(人)','人工成本(時)','行政成本(人)','行政成本(時)','所耗人力成本','異常標註內容','異常照片','異常照片2'];
 
 async function getSheets(){
   const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS || '{}');
@@ -273,7 +273,7 @@ async function handleMessage(event) {
           qty:      nm('訂單數量'),
           ratio:    rt('異常比例'),
           judge:    rt('判定'),
-          status:   st('狀態') || rt('目前處理狀態'),
+          status:   st('狀態') || rt('狀態'),
           reporter: rt('回報人'),
         };
       });
@@ -563,7 +563,7 @@ app.post('/api/anomaly', async (req, res) => {
       '訂單數量':     { number: parseInt(d.qty) || null },
       '異常比例':     { rich_text: toText(d.ratioText || '') },
       '不良數 / 抽驗數': { rich_text: toText(d.bad && d.samp ? `${d.bad} / ${d.samp}` : '') },
-      '目前處理狀態': { rich_text: toText(d.status || '未處理') },
+      '狀態': { rich_text: toText(d.status || '未處理') },
       '回報人':       { rich_text: toText(reporterName) },
     };
     if (d.replyDate) properties['需求回覆時間'] = { rich_text: [{ text: { content: d.replyDate } }] };
@@ -593,7 +593,7 @@ app.post('/api/anomaly', async (req, res) => {
       '異常狀況':     d.anomaly || '',
       '訂單數量':     parseInt(d.qty) || '',
       '異常比例':     d.ratio || '',
-      '目前處理狀態': d.status || '未處理',
+      '狀態': d.status || '未處理',
       '判定':         d.judge || '',
       '回報人':       reporterName,
       '人工成本(人)': d.laborPeople || '',
@@ -666,7 +666,7 @@ app.post('/api/generate-excel-from-sheet', async (req, res) => {
       qty:         data['訂單數量'] || '',
       ratio:       data['異常比例'] || '',
       judge:       data['判定'] || '',
-      status:      data['目前處理狀態'] || '',
+      status:      data['狀態'] || '',
       laborPeople: data['人工成本(人)'] || '',
       laborHours:  data['人工成本(時)'] || '',
       adminPeople: data['行政成本(人)'] || '',
