@@ -109,7 +109,7 @@ async function replyFlex(replyToken) {
         quickReply: {
           items: [
             { type: 'action', action: { type: 'uri', label: '📋 建立異常單', uri: 'https://liff.line.me/2009600334-UpN6esDu' } },
-            { type: 'action', action: { type: 'message', label: '🔍 查詢紀錄', text: '查詢' } }
+            { type: 'action', action: { type: 'uri', label: '🔍 查詢紀錄', uri: 'https://script.google.com/macros/s/AKfycbyfhN8EXhwETXwFY99WCRooWCQvusNNveeW5txuGRVnLLc9tRCBHQxc5fpYUyb03bLgzg/exec' } }
           ]
         }
       }]
