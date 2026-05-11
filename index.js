@@ -198,7 +198,7 @@ app.post('/api/anomaly', async (req, res) => {
       `🏭 責任單位：${d.resp || ''}\n` +
       `⚠️ 異常：${d.anomaly || ''}\n` +
       `📃 訂單數量：${d.qty || ''}　比例：${d.ratio || ''}\n` +
-      `🔥 目前處理狀態：${d.status || '目前處理狀態'}\n` +
+      `🔥 目前處理狀態：${d.status || ''}\n` +
       `📅 日期：${today}`;
 
     for (const uid of NOTIFY_USERS) {
