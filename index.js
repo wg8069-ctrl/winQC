@@ -541,12 +541,12 @@ app.post('/api/anomaly', async (req, res) => {
 
     const wgNumber = genWGNumber();
 
-    // 上傳照片
+    // 1. 上傳照片
     let photoUrl = null, photoUrl2 = null;
     if (d.photoData)  photoUrl  = await uploadToCloudinary(d.photoData);
     if (d.photoData2) photoUrl2 = await uploadToCloudinary(d.photoData2);
 
-    // 寫入 Notion
+    // 2. 寫入 Notion
     const toText = (v) => [{ text: { content: v ? String(v) : '' } }];
     const properties = {
       '異常單號':     { title: [{ text: { content: wgNumber } }] },
@@ -554,7 +554,7 @@ app.post('/api/anomaly', async (req, res) => {
       '發生單位':     { rich_text: toText(d.unit || '') },
       '責任單位':     { rich_text: toText(d.resp || '') },
       '客戶':         { rich_text: toText(d.customer || '') },
-      '單號':           { rich_text: toText(d.orderNo || '') },
+      '單號':         { rich_text: toText(d.orderNo || '') },
       '系列別':       { rich_text: toText(d.series || '') },
       '零件名稱':     { rich_text: toText(d.product || '') },
       '異常狀況':     { rich_text: toText(d.anomaly || '') },
@@ -562,7 +562,6 @@ app.post('/api/anomaly', async (req, res) => {
       '訂單數量':     { number: parseInt(d.qty) || null },
       '異常比例':     { rich_text: toText(d.ratioText || '') },
       '不良數 / 抽驗數': { rich_text: toText(d.bad && d.samp ? `${d.bad} / ${d.samp}` : '') },
-      // 狀態欄位不寫入 Notion（Notion 的 status 類型選項不同）
       '回報人':       { rich_text: toText(reporterName) },
     };
     if (d.replyDate) properties['需求回覆時間'] = { rich_text: [{ text: { content: d.replyDate } }] };
@@ -570,16 +569,11 @@ app.post('/api/anomaly', async (req, res) => {
     if (photoUrl2)   properties['異常照片2'] = { url: photoUrl2 };
 
     const pageBody = { parent: { database_id: NOTION_DATABASE_ID }, properties };
-    if (photoUrl || photoUrl2) {
-      pageBody.children = [];
-      if (photoUrl)  pageBody.children.push({ object:'block', type:'image', image:{ type:'external', external:{ url: photoUrl  } } });
-      if (photoUrl2) pageBody.children.push({ object:'block', type:'image', image:{ type:'external', external:{ url: photoUrl2 } } });
-    }
     await axios.post('https://api.notion.com/v1/pages', pageBody, {
       headers: { Authorization: `Bearer ${NOTION_TOKEN}`, 'Notion-Version': '2022-06-28', 'Content-Type': 'application/json' }
     });
 
-    // 寫入 Google Sheets（同步）
+    // 3. 寫入 Google Sheets
     appendToSheet({
       '異常單號':     wgNumber,
       '發生日期':     new Date().toISOString().split('T')[0],
@@ -587,39 +581,26 @@ app.post('/api/anomaly', async (req, res) => {
       '需求回覆時間': d.replyDate || '',
       '發生單位':     d.unit || '',
       '責任單位':     d.resp || '',
-      '系列別':       d.series || '',
-      '槍型號':       d.series || '',
-      '單號':         d.orderNo || '',
       '零件名稱':     d.product || '',
       '異常狀況':     d.anomaly || '',
       '訂單數量':     parseInt(d.qty) || '',
       '異常比例':     d.ratio || '',
-      '目前處理狀態': d.status || '',
       '判定':         d.judge || '',
       '回報人':       reporterName,
-      '人工成本(人)': d.laborPeople || '',
-      '人工成本(時)': d.laborHours || '',
-      '行政成本(人)': d.adminPeople || '',
-      '行政成本(時)': d.adminHours || '',
-      '所耗人力成本': d.laborCost || '',
-      '異常標註內容': '',
       '異常照片':     photoUrl || '',
       '異常照片2':    photoUrl2 || '',
     });
 
-    // 推播異常通知
+    // 4. 推播文字通知 (不包含 Excel 連結)
     const judgeEmoji = d.judge === '驗退X' ? '❌' : d.judge === '特採△' ? '⚠️' : '🔧';
     const msg =
       `【異常通報 ${wgNumber}】\n` +
       `👤 回報人：${reporterName}\n` +
-      `📦 品名：${d.product || '(未填)'}　系列：${d.series || ''}\n` +
+      `📦 品名：${d.product || '(未填)'}\n` +
       `📍 發生單位：${d.unit}\n` +
       `🏭 責任單位：${d.resp}\n` +
       `⚠️ 異常：${d.anomaly}\n` +
-      `🔢 訂單數量：${d.qty}　比例：${d.ratio}\n` +
       `${judgeEmoji} 判定：${d.judge}\n` +
-      `📅 日期：${d.date}` +
-      (d.replyDate ? `\n📆 回覆期限：${d.replyDate}` : '') +
       (photoUrl  ? `\n📷 照片1：${photoUrl}`  : '') +
       (photoUrl2 ? `\n📷 照片2：${photoUrl2}` : '');
 
@@ -627,6 +608,14 @@ app.post('/api/anomaly', async (req, res) => {
       await pushText(uid, msg).catch(e => console.error('push failed:', e.message));
     }
 
+    // ✅ 重點：這裡不呼叫 generateAndSendExcel，因此不會產生 Excel 通知
+
+    res.json({ success: true, number: wgNumber, reporter: reporterName });
+  } catch (err) {
+    console.error(err.response?.data || err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
     // 非同步產生 Excel 並傳送下載連結
     generateAndSendExcel(d, wgNumber, reporterName, photoUrl, photoUrl2)
       .then((result) => {
