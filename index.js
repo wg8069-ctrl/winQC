@@ -1,4 +1,4 @@
-// v5.1 - Fix SyntaxErrors & Remove auto-excel notification
+// v5.2 - 優化 LINE 通知格式，移除自動 Excel 下載
 const express = require('express');
 const crypto  = require('crypto');
 const axios   = require('axios');
@@ -99,20 +99,6 @@ async function getDisplayName(userId) {
   } catch { return '用戶'; }
 }
 
-async function replyText(replyToken, text) {
-  await axios.post('https://api.line.me/v2/bot/message/reply',
-    { replyToken, messages: [{ type: 'text', text }] },
-    { headers: { Authorization: `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}` } }
-  );
-}
-
-async function pushText(userId, text) {
-  await axios.post('https://api.line.me/v2/bot/message/push',
-    { to: userId, messages: [{ type: 'text', text }] },
-    { headers: { Authorization: `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}` } }
-  );
-}
-
 async function replyFlex(replyToken) {
   await axios.post('https://api.line.me/v2/bot/message/reply',
     {
@@ -130,21 +116,6 @@ async function replyFlex(replyToken) {
     },
     { headers: { Authorization: `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}` } }
   );
-}
-
-// ── Bot 對話邏輯 ──
-async function handleMessage(event) {
-  const userId = event.source?.userId;
-  const replyToken = event.replyToken;
-  const text = event.message?.type === 'text' ? event.message.text.trim() : null;
-  if (!userId) return;
-
-  if (text === '0' || text === '選單' || text === '重填') {
-    delete sessions[userId];
-    return await replyFlex(replyToken);
-  }
-  // 這裡省略查詢邏輯以簡化，可依需求保留原本 handleMessage 中的 search 部分
-  await replyFlex(replyToken);
 }
 
 // ── 流水號與上傳 ──
@@ -170,99 +141,85 @@ async function uploadToCloudinary(base64Data) {
   } catch (e) { return null; }
 }
 
-async function uploadExcelToCloudinary(buffer, filename) {
-  try {
-    const timestamp = Math.floor(Date.now()/1000);
-    const signature = crypto.createHash('sha1').update(`timestamp=${timestamp}${CLOUDINARY_SECRET}`).digest('hex');
-    const form = new FormData();
-    form.append('file', buffer, { filename });
-    form.append('timestamp', String(timestamp));
-    form.append('api_key', CLOUDINARY_KEY);
-    form.append('signature', signature);
-    const r = await axios.post(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/raw/upload`, form, { headers: form.getHeaders() });
-    return r.data.secure_url;
-  } catch (e) { return null; }
-}
-
-// ── Excel 產生邏輯 (僅保留供手動 API 使用) ──
-async function generateAndSendExcel(data, wgNumber, reporterName, photoUrl, photoUrl2) {
-  const templatePath = path.join(__dirname, 'template.xlsx');
-  if (!fs.existsSync(templatePath)) return { error: 'Template missing' };
-  
-  const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.readFile(templatePath);
-  const ws = workbook.worksheets[0];
-
-  // 簡單的佔位符替換
-  ws.eachRow(row => {
-    row.eachCell(cell => {
-      if (typeof cell.value === 'string' && cell.value.includes('{{')) {
-        cell.value = cell.value.replace('{{異常單號}}', wgNumber).replace('{{零件名稱}}', data.product || '');
-      }
-    });
-  });
-
-  const buffer = await workbook.xlsx.writeBuffer();
-  const downloadUrl = await uploadExcelToCloudinary(buffer, `${wgNumber}.xlsx`);
-  return { buffer, downloadUrl };
-}
-
 // ── API Routes ──
 
-// 1. LIFF 表單提交 - 【這裡已修改：不再發送 Excel】
+// LIFF 表單提交
 app.post('/api/anomaly', async (req, res) => {
   try {
     const d = req.body;
     let reporterName = d.userId ? await getDisplayName(d.userId) : '(未知)';
     const wgNumber = genWGNumber();
+    const today = new Date().toISOString().split('T')[0].replace(/-/g, '/');
 
     const photoUrl  = d.photoData ? await uploadToCloudinary(d.photoData) : null;
     const photoUrl2 = d.photoData2 ? await uploadToCloudinary(d.photoData2) : null;
 
-    // 寫入 Notion
+    // 1. 寫入 Notion
+    const toText = (v) => [{ text: { content: v ? String(v) : '' } }];
     await axios.post(`https://api.notion.com/v1/pages`, {
       parent: { database_id: NOTION_DATABASE_ID },
       properties: {
         '異常單號': { title: [{ text: { content: wgNumber } }] },
-        '零件名稱': { rich_text: [{ text: { content: d.product || '' } }] },
-        '回報人':   { rich_text: [{ text: { content: reporterName } }] }
+        '發生日期': { date: { start: new Date().toISOString().split('T')[0] } },
+        '零件名稱': { rich_text: toText(d.product) },
+        '系列別':   { rich_text: toText(d.series) },
+        '發生單位': { rich_text: toText(d.unit) },
+        '責任單位': { rich_text: toText(d.resp) },
+        '異常狀況': { rich_text: toText(d.anomaly) },
+        '判定':     { rich_text: toText(d.judge) },
+        '回報人':   { rich_text: toText(reporterName) }
       }
     }, { headers: { Authorization: `Bearer ${NOTION_TOKEN}`, 'Notion-Version': '2022-06-28' } });
 
-    // 寫入 Sheets
-    await appendToSheet({ '異常單號': wgNumber, '零件名稱': d.product, '回報人': reporterName, '狀態': '未處理' });
+    // 2. 寫入 Google Sheets
+    await appendToSheet({
+      '異常單號': wgNumber,
+      '發生日期': today,
+      '狀態': '未處理',
+      '發生單位': d.unit || '',
+      '責任單位': d.resp || '',
+      '零件名稱': d.product || '',
+      '槍型號': d.series || '',
+      '異常狀況': d.anomaly || '',
+      '訂單數量': d.qty || '',
+      '異常比例': d.ratio || '',
+      '回報人': reporterName,
+      '目前處理狀態': d.status || '未處理',
+      '異常照片': photoUrl || '',
+      '異常照片2': photoUrl2 || ''
+    });
 
-    // 推播文字通知
-    const msg = `【新異常通報】\n單號：${wgNumber}\n品名：${d.product}\n回報人：${reporterName}\n判定：${d.judge || '未定'}`;
+    // 3. 推播通知 (格式更新)
+    const msg = 
+      `【異常通報 ${wgNumber}】\n` +
+      `回報人：${reporterName}\n` +
+      `📌品名：${d.product || ''}　系列：${d.series || ''}\n` +
+      `📍 發生單位：${d.unit || ''}\n` +
+      `🏭 責任單位：${d.resp || ''}\n` +
+      `⚠️ 異常：${d.anomaly || ''}\n` +
+      `📃 訂單數量：${d.qty || ''}　比例：${d.ratio || ''}\n` +
+      `🔥 目前處理狀態：${d.status || '目前處理狀態'}\n` +
+      `📅 日期：${today}`;
+
     for (const uid of NOTIFY_USERS) {
-      await pushText(uid, msg).catch(e => console.error(e.message));
+      await axios.post('https://api.line.me/v2/bot/message/push',
+        { to: uid, messages: [{ type: 'text', text: msg }] },
+        { headers: { Authorization: `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}` } }
+      ).catch(e => console.error('Push failed:', e.message));
     }
 
     res.json({ success: true, number: wgNumber });
   } catch (err) {
-    console.error(err.message);
+    console.error('API Error:', err.message);
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// 2. 手動匯出 Excel API
-app.post('/api/generate-excel-from-sheet', async (req, res) => {
-  try {
-    const { data } = req.body;
-    const result = await generateAndSendExcel(data, data['異常單號'], data['回報人']);
-    res.json({ success: !!result.downloadUrl, url: result.downloadUrl });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// 3. Webhook
 app.post('/webhook', async (req, res) => {
   if (!verifySignature(req)) return res.status(401).send('Unauthorized');
   res.status(200).send('OK');
   for (const event of (req.body.events || [])) {
-    if (event.type === 'message') await handleMessage(event).catch(console.error);
-    if (event.type === 'follow')  await replyFlex(event.replyToken).catch(console.error);
+    if (event.type === 'message' || event.type === 'follow') await replyFlex(event.replyToken);
   }
 });
 
