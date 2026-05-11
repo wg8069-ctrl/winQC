@@ -610,11 +610,6 @@ app.post('/api/anomaly', async (req, res) => {
 
     // ✅ 重點：這裡不呼叫 generateAndSendExcel，因此不會產生 Excel 通知
 
-    res.json({ success: true, number: wgNumber, reporter: reporterName });
-  } catch (err) {
-    console.error(err.response?.data || err.message);
-    res.status(500).json({ success: false, error: err.message });
-  }
 });
     // 非同步產生 Excel 並傳送下載連結
     generateAndSendExcel(d, wgNumber, reporterName, photoUrl, photoUrl2)
