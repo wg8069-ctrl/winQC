@@ -95,8 +95,12 @@ async function getDisplayName(userId) {
     const r = await axios.get(`https://api.line.me/v2/bot/profile/${userId}`, {
       headers: { Authorization: `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}` }
     });
+    console.log('getDisplayName OK:', userId, '->', r.data.displayName);
     return r.data.displayName || '用戶';
-  } catch { return '用戶'; }
+  } catch (e) {
+    console.error('getDisplayName failed:', userId, e.response?.status, e.response?.data?.message || e.message);
+    return '(未知)';
+  }
 }
 
 async function replyFlex(replyToken) {
@@ -236,7 +240,12 @@ async function generateAndSendExcel(data, wgNumber, reporterName, photoUrl, phot
 app.post('/api/anomaly', async (req, res) => {
   try {
     const d = req.body;
-    let reporterName = d.userId ? await getDisplayName(d.userId) : '(未知)';
+    let reporterName = '(未知)';
+    console.log('anomaly submitted by userId:', d.userId || '(no userId)');
+    if (d.userId) {
+      reporterName = await getDisplayName(d.userId);
+    }
+    console.log('reporterName:', reporterName);
     const wgNumber = genWGNumber();
     const today = new Date().toISOString().split('T')[0].replace(/-/g, '/');
 
@@ -292,13 +301,27 @@ app.post('/api/anomaly', async (req, res) => {
       `📅 日期：${today}`;
 
     for (const uid of NOTIFY_USERS) {
-      await axios.post('https://api.line.me/v2/bot/message/push',
-        { to: uid, messages: [{ type: 'text', text: msg }] },
-        { headers: { Authorization: `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}` } }
-      ).catch(e => console.error('Push failed:', e.message));
+      try {
+        await axios.post('https://api.line.me/v2/bot/message/push',
+          { to: uid, messages: [{ type: 'text', text: msg }] },
+          { headers: { Authorization: `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}` } }
+        );
+      } catch (e) {
+        if (e.response?.status === 429) {
+          console.log('Push 429, retry in 1s...');
+          await new Promise(r => setTimeout(r, 1000));
+          await axios.post('https://api.line.me/v2/bot/message/push',
+            { to: uid, messages: [{ type: 'text', text: msg }] },
+            { headers: { Authorization: `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}` } }
+          ).catch(e2 => console.error('Push retry failed:', e2.message));
+        } else {
+          console.error('Push failed:', e.message);
+        }
+      }
+      if (NOTIFY_USERS.length > 1) await new Promise(r => setTimeout(r, 500));
     }
 
-    res.json({ success: true, number: wgNumber });
+    res.json({ success: true, number: wgNumber, reporter: reporterName });
   } catch (err) {
     console.error('API Error:', err.message);
     res.status(500).json({ success: false, error: err.message });
