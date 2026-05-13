@@ -127,12 +127,38 @@ async function replyFlex(replyToken) {
   );
 }
 
-// ── 流水號與上傳 ──
+// ── 流水號（從 Sheet 讀取避免重啟撞號）──
 const dailyCounters = {};
-function genWGNumber() {
+
+async function genWGNumber() {
   const now = new Date();
   const key = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}`;
-  dailyCounters[key] = (dailyCounters[key] || 0) + 1;
+  
+  // 第一次產生時，先從 Sheet 讀取今天已有的最大序號
+  if (!dailyCounters[key]) {
+    dailyCounters[key] = 0;
+    try {
+      const sheets = await getSheets();
+      const name = await getSheetName();
+      const res = await sheets.spreadsheets.values.get({
+        spreadsheetId: SPREADSHEET_ID,
+        range: `${name}!A:A`
+      });
+      const rows = res.data.values || [];
+      const prefix = `WG${key}`;
+      rows.forEach(r => {
+        if (r[0] && r[0].startsWith(prefix)) {
+          const seq = parseInt(r[0].replace(prefix, ''));
+          if (seq > dailyCounters[key]) dailyCounters[key] = seq;
+        }
+      });
+      console.log('Daily counter for', key, ':', dailyCounters[key]);
+    } catch (e) {
+      console.error('Read counter failed:', e.message);
+    }
+  }
+  
+  dailyCounters[key] = dailyCounters[key] + 1;
   return `WG${key}${String(dailyCounters[key]).padStart(2,'0')}`;
 }
 
@@ -246,7 +272,7 @@ app.post('/api/anomaly', async (req, res) => {
   try {
     const d = req.body;
     let reporterName = d.userId ? await getDisplayName(d.userId) : '(未知)';
-    const wgNumber = genWGNumber();
+    const wgNumber = await genWGNumber();
     const today = new Date().toISOString().split('T')[0].replace(/-/g, '/');
 
     const photoUrl  = d.photoData ? await uploadToCloudinary(d.photoData) : null;
