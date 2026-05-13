@@ -66,7 +66,7 @@ async function ensureSheetHeader(){
   } catch(e){ console.error('ensureSheetHeader failed:', e.message); }
 }
 
-async function appendToSheet(dataMap){
+async function appendToSheet(dataMap, retried){
   try {
     const sheets = await getSheets();
     const name = await getSheetName();
@@ -78,7 +78,16 @@ async function appendToSheet(dataMap){
       valueInputOption: 'RAW', insertDataOption: 'INSERT_ROWS',
       requestBody: { values: [row] }
     });
-  } catch(e){ console.error('appendToSheet failed:', e.message); }
+    console.log('Sheet row appended OK');
+  } catch(e){
+    console.error('appendToSheet failed:', e.message);
+    // 5xx 錯誤重試一次
+    if (!retried && e.message && (e.message.includes('502') || e.message.includes('503') || e.message.includes('500'))) {
+      console.log('Sheet 502/503, retry in 2s...');
+      await new Promise(r => setTimeout(r, 2000));
+      return appendToSheet(dataMap, true);
+    }
+  }
 }
 
 ensureSheetHeader();
@@ -95,12 +104,8 @@ async function getDisplayName(userId) {
     const r = await axios.get(`https://api.line.me/v2/bot/profile/${userId}`, {
       headers: { Authorization: `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}` }
     });
-    console.log('getDisplayName OK:', userId, '->', r.data.displayName);
     return r.data.displayName || '用戶';
-  } catch (e) {
-    console.error('getDisplayName failed:', userId, e.response?.status, e.response?.data?.message || e.message);
-    return '(未知)';
-  }
+  } catch { return '用戶'; }
 }
 
 async function replyFlex(replyToken) {
@@ -240,36 +245,37 @@ async function generateAndSendExcel(data, wgNumber, reporterName, photoUrl, phot
 app.post('/api/anomaly', async (req, res) => {
   try {
     const d = req.body;
-    let reporterName = '(未知)';
-    console.log('anomaly submitted by userId:', d.userId || '(no userId)');
-    if (d.userId) {
-      reporterName = await getDisplayName(d.userId);
-    }
-    console.log('reporterName:', reporterName);
+    let reporterName = d.userId ? await getDisplayName(d.userId) : '(未知)';
     const wgNumber = genWGNumber();
     const today = new Date().toISOString().split('T')[0].replace(/-/g, '/');
 
     const photoUrl  = d.photoData ? await uploadToCloudinary(d.photoData) : null;
     const photoUrl2 = d.photoData2 ? await uploadToCloudinary(d.photoData2) : null;
 
-    // 1. 寫入 Notion
+    // 1. 寫入 Notion（失敗不影響後續）
     const toText = (v) => [{ text: { content: v ? String(v) : '' } }];
-    await axios.post(`https://api.notion.com/v1/pages`, {
-      parent: { database_id: NOTION_DATABASE_ID },
-      properties: {
-        '異常單號': { title: [{ text: { content: wgNumber } }] },
-        '發生日期': { date: { start: new Date().toISOString().split('T')[0] } },
-        '零件名稱': { rich_text: toText(d.product) },
-        '系列別':   { rich_text: toText(d.series) },
-        '發生單位': { rich_text: toText(d.unit) },
-        '責任單位': { rich_text: toText(d.resp) },
-        '異常狀況': { rich_text: toText(d.anomaly) },
-        '判定':     { rich_text: toText(d.judge) },
-        '回報人':   { rich_text: toText(reporterName) }
-      }
-    }, { headers: { Authorization: `Bearer ${NOTION_TOKEN}`, 'Notion-Version': '2022-06-28' } });
+    try {
+      await axios.post(`https://api.notion.com/v1/pages`, {
+        parent: { database_id: NOTION_DATABASE_ID },
+        properties: {
+          '異常單號': { title: [{ text: { content: wgNumber } }] },
+          '發生日期': { date: { start: new Date().toISOString().split('T')[0] } },
+          '零件名稱': { rich_text: toText(d.product) },
+          '系列別':   { rich_text: toText(d.series) },
+          '發生單位': { rich_text: toText(d.unit) },
+          '責任單位': { rich_text: toText(d.resp) },
+          '異常狀況': { rich_text: toText(d.anomaly) },
+          '判定':     { rich_text: toText(d.judge) },
+          '回報人':   { rich_text: toText(reporterName) }
+        }
+      }, { headers: { Authorization: `Bearer ${NOTION_TOKEN}`, 'Notion-Version': '2022-06-28' } });
+      console.log('Notion OK');
+    } catch (notionErr) {
+      console.error('Notion failed (繼續執行):', notionErr.response?.data?.message || notionErr.message);
+    }
 
     // 2. 寫入 Google Sheets
+    console.log('Writing to Sheet...');
     await appendToSheet({
       '異常單號': wgNumber,
       '發生日期': today,
@@ -301,27 +307,13 @@ app.post('/api/anomaly', async (req, res) => {
       `📅 日期：${today}`;
 
     for (const uid of NOTIFY_USERS) {
-      try {
-        await axios.post('https://api.line.me/v2/bot/message/push',
-          { to: uid, messages: [{ type: 'text', text: msg }] },
-          { headers: { Authorization: `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}` } }
-        );
-      } catch (e) {
-        if (e.response?.status === 429) {
-          console.log('Push 429, retry in 1s...');
-          await new Promise(r => setTimeout(r, 1000));
-          await axios.post('https://api.line.me/v2/bot/message/push',
-            { to: uid, messages: [{ type: 'text', text: msg }] },
-            { headers: { Authorization: `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}` } }
-          ).catch(e2 => console.error('Push retry failed:', e2.message));
-        } else {
-          console.error('Push failed:', e.message);
-        }
-      }
-      if (NOTIFY_USERS.length > 1) await new Promise(r => setTimeout(r, 500));
+      await axios.post('https://api.line.me/v2/bot/message/push',
+        { to: uid, messages: [{ type: 'text', text: msg }] },
+        { headers: { Authorization: `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}` } }
+      ).catch(e => console.error('Push failed:', e.message));
     }
 
-    res.json({ success: true, number: wgNumber, reporter: reporterName });
+    res.json({ success: true, number: wgNumber });
   } catch (err) {
     console.error('API Error:', err.message);
     res.status(500).json({ success: false, error: err.message });
