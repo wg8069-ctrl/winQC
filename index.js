@@ -302,22 +302,32 @@ app.post('/api/anomaly', async (req, res) => {
 
     // 2. 寫入 Google Sheets
     console.log('Writing to Sheet...');
+    console.log('工時資料:', 'laborPeople:', d.laborPeople, 'laborHours:', d.laborHours, 'adminPeople:', d.adminPeople, 'adminHours:', d.adminHours, 'laborCost:', d.laborCost);
+    console.log('其他:', 'replyDate:', d.replyDate, 'orderNo:', d.orderNo, 'status:', d.status);
     await appendToSheet({
       '異常單號': wgNumber,
       '發生日期': today,
       '狀態': '未處理',
+      '需求回覆時間': d.replyDate || '',
       '發生單位': d.unit || '',
       '責任單位': d.resp || '',
-      '零件名稱': d.product || '',
       '槍型號': d.series || '',
+      '單號': d.orderNo || '',
+      '零件名稱': d.product || '',
       '異常狀況': d.anomaly || '',
       '訂單數量': d.qty || '',
       '異常比例': d.ratio || '',
-      '回報人': reporterName,
-      '目前處理狀態': d.status || '未處理',
+      '目前處理狀態': d.status || '',
       '判定': d.judge || '',
+      '回報人': reporterName,
+      '人工成本(人)': d.laborPeople || '',
+      '人工成本(時)': d.laborHours || '',
+      '行政成本(人)': d.adminPeople || '',
+      '行政成本(時)': d.adminHours || '',
+      '所耗人力成本': d.laborCost || '',
+      '異常標註內容': '',
       '異常照片': photoUrl || '',
-      '異常照片2': photoUrl2 || ''
+      '異常照片2': photoUrl2 || '',
     });
 
     // 3. 推播通知 (保留你自訂的表情符號格式)
