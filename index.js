@@ -104,8 +104,12 @@ async function getDisplayName(userId) {
     const r = await axios.get(`https://api.line.me/v2/bot/profile/${userId}`, {
       headers: { Authorization: `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}` }
     });
+    console.log('getDisplayName OK:', userId, '->', r.data.displayName);
     return r.data.displayName || '用戶';
-  } catch { return '用戶'; }
+  } catch (e) {
+    console.error('getDisplayName failed:', userId, e.response?.status, e.response?.data?.message || e.message);
+    return '(未知)';
+  }
 }
 
 async function replyFlex(replyToken) {
@@ -272,6 +276,7 @@ app.post('/api/anomaly', async (req, res) => {
   try {
     const d = req.body;
     let reporterName = d.userId ? await getDisplayName(d.userId) : '(未知)';
+    console.log('reporterName:', reporterName);
     const wgNumber = await genWGNumber();
     const today = new Date().toISOString().split('T')[0].replace(/-/g, '/');
 
