@@ -296,35 +296,46 @@ async function generateAndSendExcel(data, wgNumber, reporterName, photoUrl, phot
     '照片2': sanitizeForExcel(photoUrl2 || '')
   };
 
-  // 走訪每一個 Row 和 Cell
-  ws.eachRow((row) => {
-    row.eachCell((cell) => {
-      // ★ 核心修復 1：更安全的做法，利用 ExcelJS 內建屬性跳過合併儲存格的「子儲存格」
-      if (cell.isMerged && cell.master !== cell) return;
+  // 幫助函式：處理字串替換
+  const replacePlaceholders = (text) => {
+    let result = text;
+    for (const key of TEMPLATE_PLACEHOLDERS) {
+      const placeholder = `{{${key}}}`;
+      const val = mapping[key] || '';
+      result = result.split(placeholder).join(val);
+    }
+    return sanitizeForExcel(result);
+  };
 
-      let textToProcess = null;
+  // 走訪每一個 Row 和 Cell，加入 includeEmpty: true 確保結構走訪完整
+  ws.eachRow({ includeEmpty: true }, (row) => {
+    row.eachCell({ includeEmpty: true }, (cell) => {
+      // 跳過合併儲存格的子儲存格 (確保安全)
+      if (cell.isMerged && cell.master && cell.master.address !== cell.address) return;
 
-      // ★ 核心修復 2：判斷儲存格是單純字串，還是被 Excel 轉成了 RichText (富文本)
-      if (cell.value && typeof cell.value === 'string') {
-        textToProcess = cell.value;
-      } else if (cell.value && cell.value.richText) {
-        // 如果是富文本，就把拆散的文字拼湊回完整的字串
-        textToProcess = cell.value.richText.map(rt => rt.text).join('');
-      }
+      if (!cell.value) return;
 
-      // 如果有抓到文字，而且裡面包含 '{{'，就進行替換
-      if (textToProcess && textToProcess.includes('{{')) {
-        let newText = sanitizeForExcel(textToProcess);
-        
-        for (const key of TEMPLATE_PLACEHOLDERS) {
-          const placeholder = `{{${key}}}`;
-          const val = mapping[key] || '';
-          // 使用 split.join 可以一次替換掉同個儲存格內可能重複出現的同一個變數
-          newText = newText.split(placeholder).join(val);
+      // 情況 1：原本就是純文字儲存格
+      if (typeof cell.value === 'string') {
+        if (cell.value.includes('{{')) {
+          cell.value = replacePlaceholders(cell.value);
         }
-        
-        // 將替換好的純文字寫回儲存格 (這樣能覆蓋掉有問題的 RichText 結構，確保檔案不損毀)
-        cell.value = sanitizeForExcel(newText);
+      } 
+      // 情況 2：原本是富文本 (RichText) 儲存格
+      else if (cell.value.richText) {
+        const fullText = cell.value.richText.map(rt => rt.text || '').join('');
+        if (fullText.includes('{{')) {
+          const newText = replacePlaceholders(fullText);
+          
+          // ★ 關鍵修復：將替換後的文字包裝回 richText 格式，並保留第一個字型的樣式
+          // 這樣才不會因為「富文本被強制塞入純文字」導致 Excel 內部 XML 結構損毀
+          const firstFont = cell.value.richText[0] ? cell.value.richText[0].font : undefined;
+          cell.value = {
+            richText: [
+              { font: firstFont, text: newText }
+            ]
+          };
+        }
       }
     });
   });
@@ -340,7 +351,6 @@ async function generateAndSendExcel(data, wgNumber, reporterName, photoUrl, phot
   if (!downloadUrl) return { error: 'Cloudinary 上傳失敗' };
   
   return { buffer, downloadUrl, error: null };
-}
 }
 // 👆 補回來的 Excel 處理函式結束 👆
 
