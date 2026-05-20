@@ -225,8 +225,29 @@ async function generateAndSendExcel(data, wgNumber, reporterName, photoUrl, phot
     '目前處理狀態': data.status || ''
   };
 
+  // ★ 建立合併儲存格的子儲存格清單，替換時跳過
+  const mergedSlaves = new Set();
+  if (ws.model && ws.model.merges) {
+    ws.model.merges.forEach(range => {
+      const [start] = range.split(':');
+      const match = range.match(/^([A-Z]+)(\d+):([A-Z]+)(\d+)$/);
+      if (match) {
+        const rowStart = parseInt(match[2]), rowEnd = parseInt(match[4]);
+        const startCol = ws.getCell(`${match[1]}1`).col;
+        const endCol = ws.getCell(`${match[3]}1`).col;
+        for (let r = rowStart; r <= rowEnd; r++) {
+          for (let c = startCol; c <= endCol; c++) {
+            const addr = ws.getCell(r, c).address;
+            if (addr !== start) mergedSlaves.add(addr);
+          }
+        }
+      }
+    });
+  }
+
   ws.eachRow((row) => {
     row.eachCell((cell) => {
+      if (mergedSlaves.has(cell.address)) return; // ★ 跳過子儲存格
       if (cell.value && typeof cell.value === 'string' && cell.value.includes('{{')) {
         let text = cell.value;
         for (const [key, val] of Object.entries(mapping)) {
