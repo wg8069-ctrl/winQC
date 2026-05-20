@@ -196,8 +196,29 @@ async function uploadExcelToCloudinary(buffer, filename) {
   } catch (e) { return null; }
 }
 
+function sanitizeForExcel(value) {
+  if (value === null || value === undefined) return '';
+  return String(value).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g, '');
+}
+
+function resolveTemplatePath() {
+  const preferred = path.join(__dirname, 'template.xlsx');
+  if (fs.existsSync(preferred)) return preferred;
+
+  const xlsxFiles = fs.readdirSync(__dirname)
+    .filter((name) => /\.xlsx$/i.test(name))
+    .sort((a, b) => {
+      const aScore = a.toLowerCase().includes('template') ? 0 : 1;
+      const bScore = b.toLowerCase().includes('template') ? 0 : 1;
+      if (aScore !== bScore) return aScore - bScore;
+      return a.localeCompare(b);
+    });
+
+  return xlsxFiles.length ? path.join(__dirname, xlsxFiles[0]) : preferred;
+}
+
 async function generateAndSendExcel(data, wgNumber, reporterName, photoUrl, photoUrl2) {
-  const templatePath = path.join(__dirname, 'template.xlsx');
+  const templatePath = resolveTemplatePath();
   if (!fs.existsSync(templatePath)) return { buffer: null, downloadUrl: null, error: 'template.xlsx 不存在' };
 
   let workbook, ws;
@@ -208,21 +229,21 @@ async function generateAndSendExcel(data, wgNumber, reporterName, photoUrl, phot
   } catch (e) { return { buffer: null, downloadUrl: null, error: 'template.xlsx 讀取失敗' }; }
 
   const mapping = {
-    '異常單號': wgNumber,
-    '需求回覆時間': data.replyDate || '',
-    '發生日期': data.date || '',
-    '發生單位': data.unit || '',
-    '責任單位': data.resp || '',
-    '客戶': data.customer || '',
-    '零件名稱': data.product || '',
-    '系列別': data.series || '',
-    '異常狀況': data.anomaly || '',
-    '訂單數量': data.qty ? String(data.qty) : '',
-    '單號': data.orderNo || '',
-    '異常比例': data.ratio || '',
-    '判定': data.judge || '',
-    '回報人': reporterName || '',
-    '目前處理狀態': data.status || ''
+    '異常單號': sanitizeForExcel(wgNumber),
+    '需求回覆時間': sanitizeForExcel(data.replyDate),
+    '發生日期': sanitizeForExcel(data.date),
+    '發生單位': sanitizeForExcel(data.unit),
+    '責任單位': sanitizeForExcel(data.resp),
+    '客戶': sanitizeForExcel(data.customer),
+    '零件名稱': sanitizeForExcel(data.product),
+    '系列別': sanitizeForExcel(data.series),
+    '異常狀況': sanitizeForExcel(data.anomaly),
+    '訂單數量': sanitizeForExcel(data.qty),
+    '單號': sanitizeForExcel(data.orderNo),
+    '異常比例': sanitizeForExcel(data.ratio),
+    '判定': sanitizeForExcel(data.judge),
+    '回報人': sanitizeForExcel(reporterName),
+    '目前處理狀態': sanitizeForExcel(data.status)
   };
 
   // ★ 建立合併儲存格的子儲存格清單，替換時跳過
@@ -249,12 +270,12 @@ async function generateAndSendExcel(data, wgNumber, reporterName, photoUrl, phot
     row.eachCell((cell) => {
       if (mergedSlaves.has(cell.address)) return; // ★ 跳過子儲存格
       if (cell.value && typeof cell.value === 'string' && cell.value.includes('{{')) {
-        let text = cell.value;
+        let text = sanitizeForExcel(cell.value);
         for (const [key, val] of Object.entries(mapping)) {
           const placeholder = `{{${key}}}`;
           if (text.includes(placeholder)) text = text.replace(placeholder, val);
         }
-        cell.value = text;
+        cell.value = sanitizeForExcel(text);
       }
     });
   });
