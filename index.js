@@ -214,25 +214,6 @@ function sanitizeForExcel(value) {
   return result;
 }
 
-function detectImageExtension(buffer, url) {
-  if (!buffer || buffer.length < 4) return null;
-  const hex4 = buffer.subarray(0, 4).toString('hex').toLowerCase();
-  const hex8 = buffer.subarray(0, 8).toString('hex').toLowerCase();
-
-  if (hex8 === '89504e470d0a1a0a') return 'png';
-  if (hex4.startsWith('ffd8ff')) return 'jpeg';
-  if (buffer.subarray(0, 6).toString('ascii') === 'GIF87a' || buffer.subarray(0, 6).toString('ascii') === 'GIF89a') return 'gif';
-
-  if (url) {
-    const cleanUrl = url.split('?')[0].toLowerCase();
-    if (cleanUrl.endsWith('.png')) return 'png';
-    if (cleanUrl.endsWith('.jpg') || cleanUrl.endsWith('.jpeg')) return 'jpeg';
-    if (cleanUrl.endsWith('.gif')) return 'gif';
-  }
-
-  return null;
-}
-
 function resolveTemplatePath() {
   const preferred = path.join(__dirname, 'template.xlsx');
   if (fs.existsSync(preferred)) return preferred;
@@ -249,22 +230,34 @@ function resolveTemplatePath() {
   return xlsxFiles.length ? path.join(__dirname, xlsxFiles[0]) : preferred;
 }
 
-const TEMPLATE_PLACEHOLDERS = [
-  '異常單號',
-  '發生日期',
-  '發生單位',
-  '責任單位',
-  '客戶',
-  '零件名稱',
-  '系列別',
-  '異常狀況',
-  '訂單數量',
-  '單號',
-  '異常比例',
-  '異常標註內容',
-  '照片1',
-  '照片2'
-];
+function replaceTemplatePlaceholders(text, mapping) {
+  if (typeof text !== 'string' || !text.includes('{{')) return text;
+  return text.replace(/{{\s*([^{}]+?)\s*}}/g, (_, key) => {
+    const value = mapping[key];
+    return value === undefined ? '' : value;
+  });
+}
+
+function replaceCellPlaceholders(cell, mapping) {
+  if (!cell || cell.value === null || cell.value === undefined) return;
+
+  if (cell.isMerged && cell.master && cell.address !== cell.master.address) return;
+
+  if (typeof cell.value === 'string') {
+    cell.value = sanitizeForExcel(replaceTemplatePlaceholders(cell.value, mapping));
+    return;
+  }
+
+  if (cell.value && Array.isArray(cell.value.richText)) {
+    cell.value = {
+      ...cell.value,
+      richText: cell.value.richText.map((part) => ({
+        ...part,
+        text: sanitizeForExcel(replaceTemplatePlaceholders(part.text || '', mapping))
+      }))
+    };
+  }
+}
 
 async function generateAndSendExcel(data, wgNumber, reporterName, photoUrl, photoUrl2) {
   const templatePath = resolveTemplatePath();
@@ -275,78 +268,35 @@ async function generateAndSendExcel(data, wgNumber, reporterName, photoUrl, phot
     workbook = new ExcelJS.Workbook();
     await workbook.xlsx.readFile(templatePath);
     ws = workbook.worksheets[0];
-  } catch (e) { 
-    return { buffer: null, downloadUrl: null, error: 'template.xlsx 讀取失敗' }; 
-  }
+  } catch (e) { return { buffer: null, downloadUrl: null, error: 'template.xlsx 讀取失敗' }; }
 
-  const mapping = {
-    '異常單號': sanitizeForExcel(wgNumber),
-    '發生日期': sanitizeForExcel(data.date),
-    '發生單位': sanitizeForExcel(data.unit),
-    '責任單位': sanitizeForExcel(data.resp),
-    '客戶': sanitizeForExcel(data.customer),
-    '零件名稱': sanitizeForExcel(data.product),
-    '系列別': sanitizeForExcel(data.series),
-    '異常狀況': sanitizeForExcel(data.anomaly),
-    '訂單數量': sanitizeForExcel(data.qty),
-    '單號': sanitizeForExcel(data.orderNo),
-    '異常比例': sanitizeForExcel(data.ratio),
-    '異常標註內容': sanitizeForExcel(data.annotation),
-    '照片1': sanitizeForExcel(photoUrl || ''),
-    '照片2': sanitizeForExcel(photoUrl2 || '')
-  };
+  const mapping = Object.fromEntries(
+    Object.entries({
+      '異常單號': wgNumber,
+      '發生日期': data.date,
+      '發生單位': data.unit,
+      '責任單位': data.resp,
+      '客戶': data.customer,
+      '零件名稱': data.product,
+      '系列別': data.series,
+      '異常狀況': data.anomaly,
+      '訂單數量': data.qty,
+      '單號': data.orderNo,
+      '異常比例': data.ratio,
+      '異常標註內容': data.annotation,
+      '照片1': photoUrl || '',
+      '照片2': photoUrl2 || ''
+    }).map(([key, value]) => [key, sanitizeForExcel(value)])
+  );
 
-  // 幫助函式：處理字串替換
-  const replacePlaceholders = (text) => {
-    let result = text;
-    for (const key of TEMPLATE_PLACEHOLDERS) {
-      const placeholder = `{{${key}}}`;
-      const val = mapping[key] || '';
-      result = result.split(placeholder).join(val);
-    }
-    return sanitizeForExcel(result);
-  };
-
-  // 走訪每一個 Row 和 Cell，加入 includeEmpty: true 確保結構走訪完整
-  ws.eachRow({ includeEmpty: true }, (row) => {
-    row.eachCell({ includeEmpty: true }, (cell) => {
-      // 跳過合併儲存格的子儲存格 (確保安全)
-      if (cell.isMerged && cell.master && cell.master.address !== cell.address) return;
-
-      if (!cell.value) return;
-
-      // 情況 1：原本就是純文字儲存格
-      if (typeof cell.value === 'string') {
-        if (cell.value.includes('{{')) {
-          cell.value = replacePlaceholders(cell.value);
-        }
-      } 
-      // 情況 2：原本是富文本 (RichText) 儲存格
-      else if (cell.value.richText) {
-        const fullText = cell.value.richText.map(rt => rt.text || '').join('');
-        if (fullText.includes('{{')) {
-          const newText = replacePlaceholders(fullText);
-          
-          // ★ 關鍵修復：將替換後的文字包裝回 richText 格式，並保留第一個字型的樣式
-          // 這樣才不會因為「富文本被強制塞入純文字」導致 Excel 內部 XML 結構損毀
-          const firstFont = cell.value.richText[0] ? cell.value.richText[0].font : undefined;
-          cell.value = {
-            richText: [
-              { font: firstFont, text: newText }
-            ]
-          };
-        }
-      }
+  ws.eachRow({ includeEmpty: false }, (row) => {
+    row.eachCell({ includeEmpty: false }, (cell) => {
+      replaceCellPlaceholders(cell, mapping);
     });
   });
 
   let buffer;
-  try { 
-    buffer = await workbook.xlsx.writeBuffer(); 
-  } catch (e) { 
-    return { error: '寫入 Excel 發生錯誤: ' + e.message }; 
-  }
-  
+  try { buffer = await workbook.xlsx.writeBuffer(); } catch (e) { return { error: e.message }; }
   const downloadUrl = await uploadExcelToCloudinary(buffer, `${wgNumber}.xlsx`);
   if (!downloadUrl) return { error: 'Cloudinary 上傳失敗' };
   
