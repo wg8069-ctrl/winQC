@@ -238,25 +238,29 @@ function replaceTemplatePlaceholders(text, mapping) {
   });
 }
 
-function replaceCellPlaceholders(cell, mapping) {
-  if (!cell || cell.value === null || cell.value === undefined) return;
+const TEMPLATE_CELL_MAP = {
+  '異常單號': 'C2',
+  '發生日期': 'A4',
+  '發生單位': 'B4',
+  '責任單位': 'C4',
+  '客戶': 'D4',
+  '零件名稱': 'E4',
+  '槍型號': 'F4',
+  '異常狀況': 'G4',
+  '訂單數量': 'H4',
+  '單號': 'I4',
+  '異常比例': 'J4',
+  '異常標註內容': 'M9'
+};
 
-  if (cell.isMerged && cell.master && cell.address !== cell.master.address) return;
-
-  if (typeof cell.value === 'string') {
-    cell.value = sanitizeForExcel(replaceTemplatePlaceholders(cell.value, mapping));
+function setTemplateCellValue(ws, address, value) {
+  if (!address) return;
+  const cell = ws.getCell(address);
+  if (cell.isMerged && cell.master) {
+    cell.master.value = value;
     return;
   }
-
-  if (cell.value && Array.isArray(cell.value.richText)) {
-    cell.value = {
-      ...cell.value,
-      richText: cell.value.richText.map((part) => ({
-        ...part,
-        text: sanitizeForExcel(replaceTemplatePlaceholders(part.text || '', mapping))
-      }))
-    };
-  }
+  cell.value = value;
 }
 
 async function generateAndSendExcel(data, wgNumber, reporterName, photoUrl, photoUrl2) {
@@ -283,17 +287,13 @@ async function generateAndSendExcel(data, wgNumber, reporterName, photoUrl, phot
       '訂單數量': data.qty,
       '單號': data.orderNo,
       '異常比例': data.ratio,
-      '異常標註內容': data.annotation,
-      '照片1': photoUrl || '',
-      '照片2': photoUrl2 || ''
+      '異常標註內容': data.annotation
     }).map(([key, value]) => [key, sanitizeForExcel(value)])
   );
 
-  ws.eachRow({ includeEmpty: false }, (row) => {
-    row.eachCell({ includeEmpty: false }, (cell) => {
-      replaceCellPlaceholders(cell, mapping);
-    });
-  });
+  for (const [key, address] of Object.entries(TEMPLATE_CELL_MAP)) {
+    setTemplateCellValue(ws, address, mapping[key] || '');
+  }
 
   let buffer;
   try { buffer = await workbook.xlsx.writeBuffer(); } catch (e) { return { error: e.message }; }
