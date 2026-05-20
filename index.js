@@ -249,6 +249,23 @@ function resolveTemplatePath() {
   return xlsxFiles.length ? path.join(__dirname, xlsxFiles[0]) : preferred;
 }
 
+const TEMPLATE_PLACEHOLDERS = [
+  '異常單號',
+  '發生日期',
+  '發生單位',
+  '責任單位',
+  '客戶',
+  '零件名稱',
+  '系列別',
+  '異常狀況',
+  '訂單數量',
+  '單號',
+  '異常比例',
+  '異常標註內容',
+  '照片1',
+  '照片2'
+];
+
 async function generateAndSendExcel(data, wgNumber, reporterName, photoUrl, photoUrl2) {
   const templatePath = resolveTemplatePath();
   if (!fs.existsSync(templatePath)) return { buffer: null, downloadUrl: null, error: 'template.xlsx 不存在' };
@@ -262,7 +279,6 @@ async function generateAndSendExcel(data, wgNumber, reporterName, photoUrl, phot
 
   const mapping = {
     '異常單號': sanitizeForExcel(wgNumber),
-    '需求回覆時間': sanitizeForExcel(data.replyDate),
     '發生日期': sanitizeForExcel(data.date),
     '發生單位': sanitizeForExcel(data.unit),
     '責任單位': sanitizeForExcel(data.resp),
@@ -273,9 +289,9 @@ async function generateAndSendExcel(data, wgNumber, reporterName, photoUrl, phot
     '訂單數量': sanitizeForExcel(data.qty),
     '單號': sanitizeForExcel(data.orderNo),
     '異常比例': sanitizeForExcel(data.ratio),
-    '判定': sanitizeForExcel(data.judge),
-    '回報人': sanitizeForExcel(reporterName),
-    '目前處理狀態': sanitizeForExcel(data.status)
+    '異常標註內容': sanitizeForExcel(data.annotation),
+    '照片1': '',
+    '照片2': ''
   };
 
   // ★ 建立合併儲存格的子儲存格清單，替換時跳過
@@ -303,8 +319,9 @@ async function generateAndSendExcel(data, wgNumber, reporterName, photoUrl, phot
       if (mergedSlaves.has(cell.address)) return; // ★ 跳過子儲存格
       if (cell.value && typeof cell.value === 'string' && cell.value.includes('{{')) {
         let text = sanitizeForExcel(cell.value);
-        for (const [key, val] of Object.entries(mapping)) {
+        for (const key of TEMPLATE_PLACEHOLDERS) {
           const placeholder = `{{${key}}}`;
+          const val = mapping[key] || '';
           if (text.includes(placeholder)) text = text.replace(placeholder, val);
         }
         cell.value = sanitizeForExcel(text);
@@ -451,7 +468,6 @@ app.post('/api/generate-excel-from-sheet', async (req, res) => {
 
     const mapped = {
       date:        data['發生日期'] || '',
-      replyDate:   data['需求回覆時間'] || '',
       unit:        data['發生單位'] || '',
       resp:        data['責任單位'] || '',
       customer:    data['客戶'] || '',
@@ -461,8 +477,7 @@ app.post('/api/generate-excel-from-sheet', async (req, res) => {
       anomaly:     data['異常狀況'] || '',
       qty:         data['訂單數量'] || '',
       ratio:       data['異常比例'] || '',
-      judge:       data['判定'] || '',
-      status:      data['狀態'] || data['目前處理狀態'] || '',
+      annotation:  data['異常標註內容'] || '',
     };
 
     const result = await generateAndSendExcel(mapped, wgNumber, reporterName, photoUrl, photoUrl2);
