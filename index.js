@@ -198,7 +198,39 @@ async function uploadExcelToCloudinary(buffer, filename) {
 
 function sanitizeForExcel(value) {
   if (value === null || value === undefined) return '';
-  return String(value).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g, '');
+  let result = '';
+  for (const ch of String(value)) {
+    const cp = ch.codePointAt(0);
+    const isValidXmlChar =
+      cp === 0x09 ||
+      cp === 0x0A ||
+      cp === 0x0D ||
+      (cp >= 0x20 && cp <= 0xD7FF) ||
+      (cp >= 0xE000 && cp <= 0xFFFD) ||
+      (cp >= 0x10000 && cp <= 0x10FFFF);
+
+    if (isValidXmlChar) result += ch;
+  }
+  return result;
+}
+
+function detectImageExtension(buffer, url) {
+  if (!buffer || buffer.length < 4) return null;
+  const hex4 = buffer.subarray(0, 4).toString('hex').toLowerCase();
+  const hex8 = buffer.subarray(0, 8).toString('hex').toLowerCase();
+
+  if (hex8 === '89504e470d0a1a0a') return 'png';
+  if (hex4.startsWith('ffd8ff')) return 'jpeg';
+  if (buffer.subarray(0, 6).toString('ascii') === 'GIF87a' || buffer.subarray(0, 6).toString('ascii') === 'GIF89a') return 'gif';
+
+  if (url) {
+    const cleanUrl = url.split('?')[0].toLowerCase();
+    if (cleanUrl.endsWith('.png')) return 'png';
+    if (cleanUrl.endsWith('.jpg') || cleanUrl.endsWith('.jpeg')) return 'jpeg';
+    if (cleanUrl.endsWith('.gif')) return 'gif';
+  }
+
+  return null;
 }
 
 function resolveTemplatePath() {
@@ -296,8 +328,11 @@ async function generateAndSendExcel(data, wgNumber, reporterName, photoUrl, phot
     if (url) {
       const imgBuf = await fetchBuf(url);
       if (imgBuf && imgBuf.length > 100) {
-        const imgId = workbook.addImage({ buffer: imgBuf, extension: 'jpeg' });
-        ws.addImage(imgId, { tl: { col, row }, ext: { width: 360, height: 360 } });
+        const extension = detectImageExtension(imgBuf, url);
+        if (extension === 'png' || extension === 'jpeg' || extension === 'gif') {
+          const imgId = workbook.addImage({ buffer: imgBuf, extension });
+          ws.addImage(imgId, { tl: { col, row }, ext: { width: 360, height: 360 } });
+        }
       }
     }
   }
