@@ -275,7 +275,9 @@ async function generateAndSendExcel(data, wgNumber, reporterName, photoUrl, phot
     workbook = new ExcelJS.Workbook();
     await workbook.xlsx.readFile(templatePath);
     ws = workbook.worksheets[0];
-  } catch (e) { return { buffer: null, downloadUrl: null, error: 'template.xlsx 讀取失敗' }; }
+  } catch (e) { 
+    return { buffer: null, downloadUrl: null, error: 'template.xlsx 讀取失敗' }; 
+  }
 
   const mapping = {
     '異常單號': sanitizeForExcel(wgNumber),
@@ -290,76 +292,55 @@ async function generateAndSendExcel(data, wgNumber, reporterName, photoUrl, phot
     '單號': sanitizeForExcel(data.orderNo),
     '異常比例': sanitizeForExcel(data.ratio),
     '異常標註內容': sanitizeForExcel(data.annotation),
-    '照片1': '',
-    '照片2': ''
+    '照片1': sanitizeForExcel(photoUrl || ''),
+    '照片2': sanitizeForExcel(photoUrl2 || '')
   };
 
-  // ★ 建立合併儲存格的子儲存格清單，替換時跳過
-  const mergedSlaves = new Set();
-  if (ws.model && ws.model.merges) {
-    ws.model.merges.forEach(range => {
-      const [start] = range.split(':');
-      const match = range.match(/^([A-Z]+)(\d+):([A-Z]+)(\d+)$/);
-      if (match) {
-        const rowStart = parseInt(match[2]), rowEnd = parseInt(match[4]);
-        const startCol = ws.getCell(`${match[1]}1`).col;
-        const endCol = ws.getCell(`${match[3]}1`).col;
-        for (let r = rowStart; r <= rowEnd; r++) {
-          for (let c = startCol; c <= endCol; c++) {
-            const addr = ws.getCell(r, c).address;
-            if (addr !== start) mergedSlaves.add(addr);
-          }
-        }
-      }
-    });
-  }
-
+  // 走訪每一個 Row 和 Cell
   ws.eachRow((row) => {
     row.eachCell((cell) => {
-      if (mergedSlaves.has(cell.address)) return; // ★ 跳過子儲存格
-      if (cell.value && typeof cell.value === 'string' && cell.value.includes('{{')) {
-        let text = sanitizeForExcel(cell.value);
+      // ★ 核心修復 1：更安全的做法，利用 ExcelJS 內建屬性跳過合併儲存格的「子儲存格」
+      if (cell.isMerged && cell.master !== cell) return;
+
+      let textToProcess = null;
+
+      // ★ 核心修復 2：判斷儲存格是單純字串，還是被 Excel 轉成了 RichText (富文本)
+      if (cell.value && typeof cell.value === 'string') {
+        textToProcess = cell.value;
+      } else if (cell.value && cell.value.richText) {
+        // 如果是富文本，就把拆散的文字拼湊回完整的字串
+        textToProcess = cell.value.richText.map(rt => rt.text).join('');
+      }
+
+      // 如果有抓到文字，而且裡面包含 '{{'，就進行替換
+      if (textToProcess && textToProcess.includes('{{')) {
+        let newText = sanitizeForExcel(textToProcess);
+        
         for (const key of TEMPLATE_PLACEHOLDERS) {
           const placeholder = `{{${key}}}`;
           const val = mapping[key] || '';
-          if (text.includes(placeholder)) text = text.replace(placeholder, val);
+          // 使用 split.join 可以一次替換掉同個儲存格內可能重複出現的同一個變數
+          newText = newText.split(placeholder).join(val);
         }
-        cell.value = sanitizeForExcel(text);
+        
+        // 將替換好的純文字寫回儲存格 (這樣能覆蓋掉有問題的 RichText 結構，確保檔案不損毀)
+        cell.value = sanitizeForExcel(newText);
       }
     });
   });
 
-  const fetchBuf = (url) => new Promise((resolve) => {
-    try {
-      const mod = url.startsWith('https') ? require('https') : require('http');
-      mod.get(url, (res) => {
-        const chunks = [];
-        res.on('data', c => chunks.push(c));
-        res.on('end', () => resolve(Buffer.concat(chunks)));
-        res.on('error', () => resolve(null));
-      }).on('error', () => resolve(null));
-    } catch(e) { resolve(null); }
-  });
-
-  for (const [url, col, row] of [[photoUrl, 0, 4], [photoUrl2, 6, 4]]) {
-    if (url) {
-      const imgBuf = await fetchBuf(url);
-      if (imgBuf && imgBuf.length > 100) {
-        const extension = detectImageExtension(imgBuf, url);
-        if (extension === 'png' || extension === 'jpeg' || extension === 'gif') {
-          const imgId = workbook.addImage({ buffer: imgBuf, extension });
-          ws.addImage(imgId, { tl: { col, row }, ext: { width: 360, height: 360 } });
-        }
-      }
-    }
-  }
-
   let buffer;
-  try { buffer = await workbook.xlsx.writeBuffer(); } catch (e) { return { error: e.message }; }
+  try { 
+    buffer = await workbook.xlsx.writeBuffer(); 
+  } catch (e) { 
+    return { error: '寫入 Excel 發生錯誤: ' + e.message }; 
+  }
+  
   const downloadUrl = await uploadExcelToCloudinary(buffer, `${wgNumber}.xlsx`);
   if (!downloadUrl) return { error: 'Cloudinary 上傳失敗' };
   
   return { buffer, downloadUrl, error: null };
+}
 }
 // 👆 補回來的 Excel 處理函式結束 👆
 
