@@ -228,7 +228,7 @@ async function generateAndSendExcel(data, wgNumber, reporterName, photoUrl, phot
     '行政成本人': data.adminPeople || '',
     '行政成本時': data.adminHours || '',
     '所耗人力成本': data.laborCost || '',
-    '異常標註內容': ''
+    '異常標註內容': data.anomalyReply || ''
   };
 
   // 讀取 template-config.json（優先），否則回退掃描 {{}}
@@ -356,7 +356,7 @@ app.post('/api/anomaly', async (req, res) => {
       '行政成本(人)': d.adminPeople || '0',
       '行政成本(時)': d.adminHours || '0',
       '所耗人力成本': d.laborCost || '',
-      '異常標註內容': '',
+      '異常標註內容': d.anomalyReply || '',
       '異常照片': photoUrl || '',
       '異常照片2': photoUrl2 || '',
     });
@@ -417,6 +417,7 @@ app.post('/api/generate-excel-from-sheet', async (req, res) => {
       adminPeople: data['行政成本(人)'] || '',
       adminHours:  data['行政成本(時)'] || '',
       laborCost:   data['所耗人力成本'] || '',
+      anomalyReply: data['異常處理回覆'] || data['異常標註內容'] || '',
     };
 
     const result = await generateAndSendExcel(mapped, wgNumber, reporterName, photoUrl, photoUrl2);
