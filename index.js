@@ -181,91 +181,103 @@ return r.data.secure_url;
 }
 
 // 👇 以下是補回來的 Excel 處理函式 👇
-async function uploadExcelToCloudinary(buffer, filename) {
-try {
-const buf = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
-const timestamp = Math.floor(Date.now()/1000);
-const signature = crypto.createHash('sha1').update(`timestamp=${timestamp}${CLOUDINARY_SECRET}`).digest('hex');
-const form = new FormData();
-form.append('file', buf, { filename, contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-form.append('timestamp', String(timestamp));
-form.append('api_key', CLOUDINARY_KEY);
-form.append('signature', signature);
-const r = await axios.post(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/raw/upload`, form, { headers: form.getHeaders() });
-return r.data.secure_url;
-} catch (e) { return null; }
-}
-
 async function generateAndSendExcel(data, wgNumber, reporterName, photoUrl, photoUrl2) {
-const templatePath = path.join(__dirname, 'template.xlsx');
-if (!fs.existsSync(templatePath)) return { buffer: null, downloadUrl: null, error: 'template.xlsx 不存在' };
+  const templatePath = path.join(__dirname, 'template.xlsx');
+  if (!fs.existsSync(templatePath)) return { buffer: null, downloadUrl: null, error: 'template.xlsx 不存在' };
 
-let workbook, ws;
-try {
-workbook = new ExcelJS.Workbook();
-await workbook.xlsx.readFile(templatePath);
-ws = workbook.worksheets[0];
-} catch (e) { return { buffer: null, downloadUrl: null, error: 'template.xlsx 讀取失敗' }; }
+  let workbook, ws;
+  try {
+    workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.readFile(templatePath);
+    ws = workbook.worksheets[0];
+  } catch (e) { return { buffer: null, downloadUrl: null, error: 'template.xlsx 讀取失敗' }; }
 
-const mapping = {
-'異常單號': wgNumber,
-'需求回覆時間': data.replyDate || '',
-'發生日期': data.date || '',
-'發生單位': data.unit || '',
-'責任單位': data.resp || '',
-'客戶': data.customer || '',
-'零件名稱': data.product || '',
-'系列別': data.series || '',
-'異常狀況': data.anomaly || '',
-'訂單數量': data.qty ? String(data.qty) : '',
-'單號': data.orderNo || '',
-'異常比例': data.ratio || '',
-'判定': data.judge || '',
-'回報人': reporterName || '',
-'目前處理狀態': data.status || ''
-};
+  // 資料對應表
+  const dataMap = {
+    '異常單號': wgNumber,
+    '發生日期': data.date || '',
+    '發生單位': data.unit || '',
+    '責任單位': data.resp || '',
+    '客戶': data.customer || '',
+    '零件名稱': data.product || '',
+    '系列別': data.series || '',
+    '異常狀況': data.anomaly || '',
+    '訂單數量': data.qty ? String(data.qty) : '',
+    '單號': data.orderNo || '',
+    '異常比例': data.ratio || '',
+    '判定': data.judge || '',
+    '回報人': reporterName || '',
+    '目前處理狀態': data.status || '',
+    '人工成本人': data.laborPeople || '',
+    '人工成本時': data.laborHours || '',
+    '行政成本人': data.adminPeople || '',
+    '行政成本時': data.adminHours || '',
+    '所耗人力成本': data.laborCost || '',
+    '異常標註內容': ''
+  };
 
-ws.eachRow((row) => {
-row.eachCell((cell) => {
-if (cell.value && typeof cell.value === 'string' && cell.value.includes('{{')) {
-let text = cell.value;
-for (const [key, val] of Object.entries(mapping)) {
-const placeholder = `{{${key}}}`;
-if (text.includes(placeholder)) text = text.replace(placeholder, val);
-}
-cell.value = text;
-}
-});
-});
+  // 讀取 template-config.json（優先），否則回退掃描 {{}}
+  const configPath = path.join(__dirname, 'template-config.json');
+  let tmConfig = null;
+  try {
+    if (fs.existsSync(configPath)) {
+      tmConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    }
+  } catch (e) { console.error('讀取 config 失敗:', e.message); }
 
-const fetchBuf = (url) => new Promise((resolve) => {
-try {
-const mod = url.startsWith('https') ? require('https') : require('http');
-mod.get(url, (res) => {
-const chunks = [];
-res.on('data', c => chunks.push(c));
-res.on('end', () => resolve(Buffer.concat(chunks)));
-res.on('error', () => resolve(null));
-}).on('error', () => resolve(null));
-} catch(e) { resolve(null); }
-});
+  if (tmConfig) {
+    // 用 config 精確定位儲存格
+    for (const p of (tmConfig.placeholders || [])) {
+      const val = dataMap[p.key];
+      if (val !== undefined) {
+        ws.getCell(p.cell).value = val;
+      }
+    }
+    // 固定值已經在 template.xlsx 裡，不需處理
+  } else {
+    // 回退：掃描 {{}} 佔位符
+    ws.eachRow((row) => {
+      row.eachCell((cell) => {
+        if (cell.value && typeof cell.value === 'string' && cell.value.includes('{{')) {
+          let text = cell.value;
+          for (const [key, val] of Object.entries(dataMap)) {
+            text = text.replace(`{{${key}}}`, val);
+          }
+          cell.value = text;
+        }
+      });
+    });
+  }
 
-for (const [url, col, row] of [[photoUrl, 0, 4], [photoUrl2, 6, 4]]) {
-if (url) {
-const imgBuf = await fetchBuf(url);
-if (imgBuf && imgBuf.length > 100) {
-const imgId = workbook.addImage({ buffer: imgBuf, extension: 'jpeg' });
-ws.addImage(imgId, { tl: { col, row }, ext: { width: 360, height: 360 } });
-}
-}
-}
+  // 插入照片
+  const fetchBuf = (url) => new Promise((resolve) => {
+    try {
+      const mod = url.startsWith('https') ? require('https') : require('http');
+      mod.get(url, (res) => {
+        const chunks = [];
+        res.on('data', c => chunks.push(c));
+        res.on('end', () => resolve(Buffer.concat(chunks)));
+        res.on('error', () => resolve(null));
+      }).on('error', () => resolve(null));
+    } catch(e) { resolve(null); }
+  });
 
-let buffer;
-try { buffer = await workbook.xlsx.writeBuffer(); } catch (e) { return { error: e.message }; }
-const downloadUrl = await uploadExcelToCloudinary(buffer, `${wgNumber}.xlsx`);
-if (!downloadUrl) return { error: 'Cloudinary 上傳失敗' };
+  for (const [url, col, row] of [[photoUrl, 0, 4], [photoUrl2, 6, 4]]) {
+    if (url) {
+      const imgBuf = await fetchBuf(url);
+      if (imgBuf && imgBuf.length > 100) {
+        const imgId = workbook.addImage({ buffer: imgBuf, extension: 'jpeg' });
+        ws.addImage(imgId, { tl: { col, row }, ext: { width: 360, height: 360 } });
+      }
+    }
+  }
 
-return { buffer, downloadUrl, error: null };
+  let buffer;
+  try { buffer = await workbook.xlsx.writeBuffer(); } catch (e) { return { error: e.message }; }
+  const downloadUrl = await uploadExcelToCloudinary(buffer, `${wgNumber}.xlsx`);
+  if (!downloadUrl) return { error: 'Cloudinary 上傳失敗' };
+
+  return { buffer, downloadUrl, error: null };
 }
 // 👆 補回來的 Excel 處理函式結束 👆
 
