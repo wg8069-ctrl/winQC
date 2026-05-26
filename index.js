@@ -74,7 +74,7 @@ async function appendToSheet(dataMap, retried) {
     const headers = (headerRes.data.values && headerRes.data.values[0]) ? headerRes.data.values[0] : SHEET_HEADERS;
     const row = headers.map(h => dataMap[h] !== undefined ? dataMap[h] : '');
 
-    // 寫入主工作表
+    // 1. 寫入主工作表
     await sheets.spreadsheets.values.append({
       spreadsheetId: SPREADSHEET_ID, range: `${name}!A1`,
       valueInputOption: 'RAW', insertDataOption: 'INSERT_ROWS',
@@ -82,9 +82,9 @@ async function appendToSheet(dataMap, retried) {
     });
     console.log('Sheet row appended OK');
 
-    // 寫入「備份」工作表
+    // 2. 寫入「備份」工作表
     try {
-      await ensureBackupSheet(sheets, headers);
+      await ensureSubSheet(sheets, '備份', headers);
       await sheets.spreadsheets.values.append({
         spreadsheetId: SPREADSHEET_ID, range: `備份!A1`,
         valueInputOption: 'RAW', insertDataOption: 'INSERT_ROWS',
@@ -93,6 +93,21 @@ async function appendToSheet(dataMap, retried) {
       console.log('Backup sheet row appended OK');
     } catch (backupErr) {
       console.error('Backup sheet failed (不影響主流程):', backupErr.message);
+    }
+
+    // 3. 依異常分類分流到子工作表
+    try {
+      const anomCat = (dataMap['異常分類'] || '').trim();
+      const targetSheet = (anomCat === '來料不足') ? '來料不足' : '異常';
+      await ensureSubSheet(sheets, targetSheet, headers);
+      await sheets.spreadsheets.values.append({
+        spreadsheetId: SPREADSHEET_ID, range: `${targetSheet}!A1`,
+        valueInputOption: 'RAW', insertDataOption: 'INSERT_ROWS',
+        requestBody: { values: [row] }
+      });
+      console.log(`分流到「${targetSheet}」OK`);
+    } catch (routeErr) {
+      console.error('分流失敗 (不影響主流程):', routeErr.message);
     }
 
   } catch (e) {
@@ -105,21 +120,20 @@ async function appendToSheet(dataMap, retried) {
   }
 }
 
-// 確保「備份」工作表存在，不存在就建立並加標題列
-async function ensureBackupSheet(sheets, headers) {
+// 確保子工作表存在，不存在就建立並加標題列
+async function ensureSubSheet(sheets, sheetName, headers) {
   try {
-    await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: `備份!A1` });
+    await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: `${sheetName}!A1` });
   } catch (e) {
-    // 工作表不存在，建立它
     await sheets.spreadsheets.batchUpdate({
       spreadsheetId: SPREADSHEET_ID,
-      requestBody: { requests: [{ addSheet: { properties: { title: '備份' } } }] }
+      requestBody: { requests: [{ addSheet: { properties: { title: sheetName } } }] }
     });
     await sheets.spreadsheets.values.update({
-      spreadsheetId: SPREADSHEET_ID, range: `備份!A1`,
+      spreadsheetId: SPREADSHEET_ID, range: `${sheetName}!A1`,
       valueInputOption: 'RAW', requestBody: { values: [headers] }
     });
-    console.log('Backup sheet created with headers');
+    console.log(`「${sheetName}」sheet created with headers`);
   }
 }
 
