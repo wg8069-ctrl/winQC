@@ -73,12 +73,28 @@ async function appendToSheet(dataMap, retried) {
     const headerRes = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: `${name}!1:1` });
     const headers = (headerRes.data.values && headerRes.data.values[0]) ? headerRes.data.values[0] : SHEET_HEADERS;
     const row = headers.map(h => dataMap[h] !== undefined ? dataMap[h] : '');
+
+    // 寫入主工作表
     await sheets.spreadsheets.values.append({
       spreadsheetId: SPREADSHEET_ID, range: `${name}!A1`,
       valueInputOption: 'RAW', insertDataOption: 'INSERT_ROWS',
       requestBody: { values: [row] }
     });
     console.log('Sheet row appended OK');
+
+    // 寫入「備份」工作表
+    try {
+      await ensureBackupSheet(sheets, headers);
+      await sheets.spreadsheets.values.append({
+        spreadsheetId: SPREADSHEET_ID, range: `備份!A1`,
+        valueInputOption: 'RAW', insertDataOption: 'INSERT_ROWS',
+        requestBody: { values: [row] }
+      });
+      console.log('Backup sheet row appended OK');
+    } catch (backupErr) {
+      console.error('Backup sheet failed (不影響主流程):', backupErr.message);
+    }
+
   } catch (e) {
     console.error('appendToSheet failed:', e.message);
     if (!retried && e.message && (e.message.includes('502') || e.message.includes('503') || e.message.includes('500'))) {
@@ -86,6 +102,24 @@ async function appendToSheet(dataMap, retried) {
       await new Promise(r => setTimeout(r, 2000));
       return appendToSheet(dataMap, true);
     }
+  }
+}
+
+// 確保「備份」工作表存在，不存在就建立並加標題列
+async function ensureBackupSheet(sheets, headers) {
+  try {
+    await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: `備份!A1` });
+  } catch (e) {
+    // 工作表不存在，建立它
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId: SPREADSHEET_ID,
+      requestBody: { requests: [{ addSheet: { properties: { title: '備份' } } }] }
+    });
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SPREADSHEET_ID, range: `備份!A1`,
+      valueInputOption: 'RAW', requestBody: { values: [headers] }
+    });
+    console.log('Backup sheet created with headers');
   }
 }
 
@@ -369,7 +403,6 @@ app.post('/api/anomaly', async (req, res) => {
       `📌品名：${d.product || ''}　系列：${d.series || ''}\n` +
       `📍 發生單位：${d.unit || ''}\n` +
       `🏭 責任單位：${d.resp || ''}\n` +
-      `🏷️ 異常分類：${d.anomCat || ''}\n` +
       `⚠️ 異常狀況：${d.anomaly || ''}\n` +
       `📃 訂單數量：${d.qty || ''}　比例：${d.ratio || ''}\n` +
       `🔥 目前處理狀態：${d.status || ''}\n` +
