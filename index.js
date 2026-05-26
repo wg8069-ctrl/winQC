@@ -1,4 +1,4 @@
-// v5.5 - 動態讀取 template-config.json，修復 uploadExcelToCloudinary，清除重複欄位
+// v5.6 - 新增異常分類欄位
 const express = require('express');
 const crypto  = require('crypto');
 const axios   = require('axios');
@@ -32,7 +32,7 @@ const sessions = {};
 // ── Google Sheets ──
 const { google } = require('googleapis');
 const SPREADSHEET_ID = process.env.GOOGLE_SHEET_ID || '1PDzqFlsjPgHJBhDsB8gwuu3_eRwJ6GS_uV2Sc6ZanXM';
-const SHEET_HEADERS = ['異常單號','發生日期','狀態','需求回覆時間','發生單位','責任單位','槍型號','單號','零件名稱','異常狀況','訂單數量','異常比例','目前處理狀態','判定','回報人','人工成本(人)','人工成本(時)','行政成本(人)','行政成本(時)','所耗人力成本','異常標註內容','異常照片','異常照片2'];
+const SHEET_HEADERS = ['異常單號','發生日期','狀態','需求回覆時間','發生單位','責任單位','槍型號','單號','零件名稱','異常分類','異常狀況','訂單數量','異常比例','目前處理狀態','判定','回報人','人工成本(人)','人工成本(時)','行政成本(人)','行政成本(時)','所耗人力成本','異常標註內容','品保處理回覆','異常照片','異常照片2'];
 
 async function getSheets() {
   const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS || '{}');
@@ -207,7 +207,7 @@ async function generateAndSendExcel(data, wgNumber, reporterName, photoUrl, phot
     ws = workbook.worksheets[0];
   } catch (e) { return { buffer: null, downloadUrl: null, error: 'template.xlsx 讀取失敗' }; }
 
-  // 資料對應表
+  // 資料對應表（Excel 匯出不含異常分類）
   const dataMap = {
     '異常單號': wgNumber,
     '發生日期': data.date || '',
@@ -241,16 +241,13 @@ async function generateAndSendExcel(data, wgNumber, reporterName, photoUrl, phot
   } catch (e) { console.error('讀取 config 失敗:', e.message); }
 
   if (tmConfig) {
-    // 用 config 精確定位儲存格
     for (const p of (tmConfig.placeholders || [])) {
       const val = dataMap[p.key];
       if (val !== undefined) {
         ws.getCell(p.cell).value = val;
       }
     }
-    // 固定值已經在 template.xlsx 裡，不需處理
   } else {
-    // 回退：掃描 {{}} 佔位符
     ws.eachRow((row) => {
       row.eachCell((cell) => {
         if (cell.value && typeof cell.value === 'string' && cell.value.includes('{{')) {
@@ -321,6 +318,7 @@ app.post('/api/anomaly', async (req, res) => {
           '系列別':   { rich_text: toText(d.series) },
           '發生單位': { rich_text: toText(d.unit) },
           '責任單位': { rich_text: toText(d.resp) },
+          '異常分類': { rich_text: toText(d.anomCat) },
           '異常狀況': { rich_text: toText(d.anomaly) },
           '判定':     { rich_text: toText(d.judge) },
           '回報人':   { rich_text: toText(reporterName) }
@@ -333,6 +331,7 @@ app.post('/api/anomaly', async (req, res) => {
 
     // 2. 寫入 Google Sheets
     console.log('Writing to Sheet...');
+    console.log('異常分類:', d.anomCat, '異常狀況:', d.anomaly);
     console.log('工時資料:', 'laborPeople:', d.laborPeople, 'laborHours:', d.laborHours, 'adminPeople:', d.adminPeople, 'adminHours:', d.adminHours, 'laborCost:', d.laborCost);
     console.log('其他:', 'replyDate:', d.replyDate, 'orderNo:', d.orderNo, 'status:', d.status);
     await appendToSheet({
@@ -345,6 +344,7 @@ app.post('/api/anomaly', async (req, res) => {
       '槍型號': d.series || '',
       '單號': d.orderNo || '',
       '零件名稱': d.product || '',
+      '異常分類': d.anomCat || '',
       '異常狀況': d.anomaly || '',
       '訂單數量': d.qty || '',
       '異常比例': d.ratio || '',
@@ -356,7 +356,8 @@ app.post('/api/anomaly', async (req, res) => {
       '行政成本(人)': d.adminPeople || '0',
       '行政成本(時)': d.adminHours || '0',
       '所耗人力成本': d.laborCost || '',
-      '異常標註內容': d.anomalyReply || '',
+      '異常標註內容': '',
+      '品保處理回覆': '',
       '異常照片': photoUrl || '',
       '異常照片2': photoUrl2 || '',
     });
@@ -368,7 +369,8 @@ app.post('/api/anomaly', async (req, res) => {
       `📌品名：${d.product || ''}　系列：${d.series || ''}\n` +
       `📍 發生單位：${d.unit || ''}\n` +
       `🏭 責任單位：${d.resp || ''}\n` +
-      `⚠️ 異常：${d.anomaly || ''}\n` +
+      `🏷️ 異常分類：${d.anomCat || ''}\n` +
+      `⚠️ 異常狀況：${d.anomaly || ''}\n` +
       `📃 訂單數量：${d.qty || ''}　比例：${d.ratio || ''}\n` +
       `🔥 目前處理狀態：${d.status || ''}\n` +
       `📅 日期：${today}`;
@@ -380,14 +382,14 @@ app.post('/api/anomaly', async (req, res) => {
       ).catch(e => console.error('Push failed:', e.message));
     }
 
-    res.json({ success: true, number: wgNumber });
+    res.json({ success: true, number: wgNumber, reporter: reporterName });
   } catch (err) {
     console.error('API Error:', err.message);
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// 從 Sheet 資料產生 Excel
+// 從 Sheet 資料產生 Excel（異常分類不匯出）
 app.post('/api/generate-excel-from-sheet', async (req, res) => {
   try {
     const { data } = req.body;
