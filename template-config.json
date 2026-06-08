@@ -1,37 +1,84 @@
 {
   "placeholders": [
-    { "cell": "C2", "key": "異常單號", "label": "異常單號" },
-    { "cell": "A4", "key": "發生日期", "label": "發生日期" },
-    { "cell": "B4", "key": "發生單位", "label": "發生單位" },
-    { "cell": "C4", "key": "責任單位", "label": "責任單位" },
-    { "cell": "D4", "key": "客戶", "label": "客戶" },
-    { "cell": "E4", "key": "零件名稱", "label": "零件名稱" },
-    { "cell": "F4", "key": "系列別", "label": "系列別" },
-    { "cell": "G4", "key": "異常狀況", "label": "異常狀況" },
-    { "cell": "H4", "key": "訂單數量", "label": "訂單數量" },
-    { "cell": "I4", "key": "單號", "label": "單號" },
-    { "cell": "J4", "key": "異常比例", "label": "異常比例" },
-    { "cell": "M8", "key": "人工成本人", "label": "人工成本(人)" },
-    { "cell": "O8", "key": "人工成本時", "label": "人工成本(時)" },
-    { "cell": "R8", "key": "行政成本人", "label": "行政成本(人)" },
-    { "cell": "T8", "key": "行政成本時", "label": "行政成本(時)" },
-    { "cell": "X8", "key": "所耗人力成本", "label": "所耗人力成本" },
-    { "cell": "M10", "key": "異常標註內容", "label": "異常標註內容" }
-  ],
-  "fixedValues": [
-    { "cell": "L4", "value": "琛", "label": "確認人" }
-  ],
-  "printSettings": {
-    "orientation": "landscape",
-    "paperSize": 9,
-    "fitToWidth": 1,
-    "fitToHeight": 1,
-    "printArea": "A1:Y29",
-    "margins": {
-      "left": 0.25,
-      "right": 0.25,
-      "top": 0.3,
-      "bottom": 0.3
+    {
+      "key": "異常單號",
+      "cell": "C2"
+    },
+    {
+      "key": "發生日期",
+      "cell": "A4"
+    },
+    {
+      "key": "發生單位",
+      "cell": "B4"
+    },
+    {
+      "key": "責任單位",
+      "cell": "C4"
+    },
+    {
+      "key": "客戶",
+      "cell": "D4"
+    },
+    {
+      "key": "零件名稱",
+      "cell": "E4"
+    },
+    {
+      "key": "系列別",
+      "cell": "F4"
+    },
+    {
+      "key": "異常狀況",
+      "cell": "G4"
+    },
+    {
+      "key": "訂單數量",
+      "cell": "H4"
+    },
+    {
+      "key": "單號",
+      "cell": "I4"
+    },
+    {
+      "key": "異常比例",
+      "cell": "J4"
+    },
+    {
+      "key": "判定",
+      "cell": "K4"
+    },
+    {
+      "key": "異常標註內容",
+      "cell": "M4"
+    },
+    {
+      "key": "照片1",
+      "cell": "A5"
+    },
+    {
+      "key": "照片2",
+      "cell": "G5"
+    },
+    {
+      "key": "人工成本時",
+      "cell": "M32"
+    },
+    {
+      "key": "行政成本人",
+      "cell": "O32"
+    },
+    {
+      "key": "行政成本時",
+      "cell": "R32"
+    },
+    {
+      "key": "所耗人力成本",
+      "cell": "T32"
+    },
+    {
+      "key": "人工成本人",
+      "cell": "Y32"
     }
-  }
+  ]
 }
