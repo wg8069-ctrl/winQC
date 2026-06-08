@@ -274,10 +274,10 @@ async function generateAndSendExcel(data, wgNumber, reporterName, photoUrl, phot
     '判定': data.judge || '',
     '回報人': reporterName || '',
     '目前處理狀態': data.status || '',
-    '人工成本人': data.laborPeople || '',
-    '人工成本時': data.laborHours || '',
-    '行政成本人': data.adminPeople || '',
-    '行政成本時': data.adminHours || '',
+    '人工成本(人)': data.laborPeople || '',
+    '人工成本(時)': data.laborHours || '',
+    '行政成本(人)': data.adminPeople || '',
+    '行政成本(時)': data.adminHours || '',
     '所耗人力成本': data.laborCost || '',
     '異常標註內容': data.anomalyReply || ''
   };
