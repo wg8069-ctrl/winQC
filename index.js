@@ -15,7 +15,7 @@ app.use((req, res, next) => {
   if (req.method === 'OPTIONS') return res.sendStatus(200);
   next();
 });
-app.use(express.json({ limit: '10mb', verify: (req, res, buf) => { req.rawBody = buf; } }));
+app.use(express.json({ limit: '50mb', verify: (req, res, buf) => { req.rawBody = buf; } }));
 
 // ── 環境變數 ──
 const LINE_CHANNEL_SECRET       = process.env.LINE_CHANNEL_SECRET;
