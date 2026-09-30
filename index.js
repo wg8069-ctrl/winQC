@@ -168,8 +168,8 @@ async function replyFlex(replyToken) {
         text: 'WinGun 異常通報 👇',
         quickReply: {
           items: [
-            { type: 'action', action: { type: 'uri', label: '📋 建立異常單', uri: 'https://sterling-facial-eminem-ingredients.trycloudflare.com' } },
-            { type: 'action', action: { type: 'uri', label: '🔍 查詢紀錄', uri: 'https://sterling-facial-eminem-ingredients.trycloudflare.com/dashboard' } }
+            { type: 'action', action: { type: 'uri', label: '📋 建立異常單', uri: 'https://part-province-forecasts-acknowledge.trycloudflare.com' } },
+            { type: 'action', action: { type: 'uri', label: '🔍 查詢紀錄', uri: 'https://part-province-forecasts-acknowledge.trycloudflare.com/dashboard' } }
           ]
         }
       }]
