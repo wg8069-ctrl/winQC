@@ -168,8 +168,8 @@ async function replyFlex(replyToken) {
         text: 'WinGun 異常通報 👇',
         quickReply: {
           items: [
-            { type: 'action', action: { type: 'uri', label: '📋 建立異常單', uri: 'https://blvd-suitable-readers-parts.trycloudflare.com' } },
-            { type: 'action', action: { type: 'uri', label: '🔍 查詢紀錄', uri: 'https://blvd-suitable-readers-parts.trycloudflare.com/dashboard' } }
+            { type: 'action', action: { type: 'uri', label: '📋 建立異常單', uri: 'https://efforts-richardson-door-wind.trycloudflare.com' } },
+            { type: 'action', action: { type: 'uri', label: '🔍 查詢紀錄', uri: 'https://efforts-richardson-door-wind.trycloudflare.com/dashboard' } }
           ]
         }
       }]
